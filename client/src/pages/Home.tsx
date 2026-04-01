@@ -171,25 +171,26 @@ export default function Home() {
       {/* ══════════════════════════════════════════════════════════
           HERO
       ══════════════════════════════════════════════════════════ */}
-      <section className="relative overflow-hidden" style={{ background: "linear-gradient(135deg, oklch(0.97 0.015 264), oklch(0.96 0.02 280), oklch(0.97 0.012 250))" }}>
-        {/* Glassmorphism background blobs */}
+      <section className="relative overflow-hidden" style={{ background: "linear-gradient(160deg, #0f0a1e 0%, #1a1035 30%, #0d1530 60%, #0a0f20 100%)" }}>
+        {/* Aurora background effect */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          {/* Primary aurora band */}
           <div
-            className="absolute -top-32 -left-32 w-[600px] h-[600px] rounded-full"
-            style={{ background: "radial-gradient(circle, oklch(0.72 0.18 264 / 0.25) 0%, transparent 70%)", filter: "blur(80px)" }}
+            className="absolute top-[-20%] left-[-10%] w-[120%] h-[60%]"
+            style={{ background: "conic-gradient(from 180deg at 50% 50%, oklch(0.55 0.25 264 / 0.35) 0deg, oklch(0.50 0.28 290 / 0.25) 90deg, oklch(0.45 0.20 230 / 0.30) 180deg, oklch(0.55 0.22 270 / 0.20) 270deg, oklch(0.55 0.25 264 / 0.35) 360deg)", filter: "blur(100px)" }}
           />
+          {/* Secondary glow */}
           <div
-            className="absolute top-20 right-[-10%] w-[500px] h-[500px] rounded-full"
-            style={{ background: "radial-gradient(circle, oklch(0.65 0.22 290 / 0.20) 0%, transparent 70%)", filter: "blur(90px)" }}
+            className="absolute bottom-[10%] right-[-5%] w-[500px] h-[500px] rounded-full"
+            style={{ background: "radial-gradient(circle, oklch(0.50 0.22 280 / 0.20) 0%, transparent 70%)", filter: "blur(80px)" }}
           />
+          {/* Accent glow */}
           <div
-            className="absolute bottom-[-10%] left-[30%] w-[450px] h-[450px] rounded-full"
-            style={{ background: "radial-gradient(circle, oklch(0.70 0.16 250 / 0.18) 0%, transparent 70%)", filter: "blur(70px)" }}
+            className="absolute top-[50%] left-[5%] w-[350px] h-[350px] rounded-full"
+            style={{ background: "radial-gradient(circle, oklch(0.55 0.18 230 / 0.15) 0%, transparent 70%)", filter: "blur(60px)" }}
           />
-          <div
-            className="absolute top-[40%] left-[10%] w-[300px] h-[300px] rounded-full"
-            style={{ background: "radial-gradient(circle, oklch(0.75 0.14 220 / 0.12) 0%, transparent 70%)", filter: "blur(60px)" }}
-          />
+          {/* Subtle noise texture overlay */}
+          <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")", backgroundRepeat: "repeat", backgroundSize: "200px 200px" }} />
         </div>
 
         <div className="container relative z-10 pt-8 pb-0 md:pt-12">
@@ -197,12 +198,12 @@ export default function Home() {
           <div className="text-center max-w-3xl mx-auto mb-4">
             <h1
               className="text-4xl md:text-5xl lg:text-[3.6rem] font-extrabold leading-[1.12] mb-5 tracking-tight"
-              style={{ fontFamily: "'Sora', sans-serif", color: TEXT_MAIN }}
+              style={{ fontFamily: "'Sora', sans-serif", color: "oklch(0.95 0.01 264)" }}
             >
               {t.hero_title_1}{" "}
               <span
                 style={{
-                  background: GRAD,
+                  background: "linear-gradient(135deg, oklch(0.72 0.22 264), oklch(0.65 0.28 290), oklch(0.70 0.20 230))",
                   WebkitBackgroundClip: "text",
                   WebkitTextFillColor: "transparent",
                   backgroundClip: "text",
@@ -213,28 +214,28 @@ export default function Home() {
             </h1>
             <p
               className="text-base md:text-lg max-w-xl mx-auto leading-relaxed"
-              style={{ color: TEXT_MUTED }}
+              style={{ color: "oklch(0.72 0.02 264)" }}
             >
               {t.hero_subtitle}
             </p>
           </div>
 
           {/* Social proof row */}
-          <div className="flex flex-wrap justify-center items-center gap-x-6 gap-y-2 mb-8 text-xs" style={{ color: TEXT_MUTED }}>
+          <div className="flex flex-wrap justify-center items-center gap-x-6 gap-y-2 mb-8 text-xs" style={{ color: "oklch(0.60 0.02 264)" }}>
             <span className="flex items-center gap-1.5">
               <span className="flex">
                 {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="w-3.5 h-3.5 fill-current" style={{ color: "oklch(0.70 0.18 85)" }} />
+                  <Star key={i} className="w-3.5 h-3.5 fill-current" style={{ color: "oklch(0.75 0.18 85)" }} />
                 ))}
               </span>
-              <strong style={{ color: TEXT_MAIN }}>4.8/5</strong>
-              <span style={{ color: TEXT_LIGHT }}>{(t as any).hero_social_rating ?? "Valoración media"}</span>
+              <strong style={{ color: "oklch(0.92 0.01 264)" }}>4.8/5</strong>
+              <span style={{ color: "oklch(0.60 0.02 264)" }}>{(t as any).hero_social_rating ?? "Valoración media"}</span>
             </span>
-            <span className="w-px h-3 rounded-full" style={{ backgroundColor: BORDER }} />
+            <span className="w-px h-3 rounded-full" style={{ backgroundColor: "oklch(0.35 0.02 264)" }} />
             <span className="flex items-center gap-1.5">
-              <Users className="w-3.5 h-3.5" style={{ color: INDIGO }} />
-              <strong style={{ color: TEXT_MAIN }}>2.3M+</strong>
-              <span style={{ color: TEXT_LIGHT }}>{(t as any).hero_social_users ?? "usuarios activos"}</span>
+              <Users className="w-3.5 h-3.5" style={{ color: "oklch(0.65 0.20 264)" }} />
+              <strong style={{ color: "oklch(0.92 0.01 264)" }}>2.3M+</strong>
+              <span style={{ color: "oklch(0.60 0.02 264)" }}>{(t as any).hero_social_users ?? "usuarios activos"}</span>
             </span>
           </div>
 
@@ -253,15 +254,15 @@ export default function Home() {
               onDragLeave={() => setIsDraggingOver(false)}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className="cursor-pointer rounded-2xl border-2 border-dashed transition-all duration-300"
+              className="cursor-pointer rounded-2xl border transition-all duration-300"
               style={{
-                borderColor: isDraggingOver ? INDIGO : "oklch(0.47 0.24 264 / 0.28)",
-                backgroundColor: isDraggingOver ? "oklch(0.97 0.02 264 / 0.85)" : "oklch(1 0 0 / 0.55)",
-                backdropFilter: "blur(20px)",
-                WebkitBackdropFilter: "blur(20px)",
+                borderColor: isDraggingOver ? "oklch(0.65 0.25 264 / 0.6)" : "oklch(0.45 0.12 264 / 0.25)",
+                backgroundColor: isDraggingOver ? "oklch(0.18 0.04 264 / 0.8)" : "oklch(0.14 0.03 264 / 0.6)",
+                backdropFilter: "blur(24px)",
+                WebkitBackdropFilter: "blur(24px)",
                 boxShadow: isDraggingOver
-                  ? `0 0 0 5px oklch(0.47 0.24 264 / 0.08), 0 12px 48px oklch(0.47 0.24 264 / 0.12)`
-                  : "0 8px 32px oklch(0.13 0.015 264 / 0.08), 0 1px 4px oklch(0.13 0.015 264 / 0.04), inset 0 1px 0 oklch(1 0 0 / 0.6)",
+                  ? "0 0 0 4px oklch(0.55 0.25 264 / 0.15), 0 16px 48px oklch(0 0 0 / 0.4)"
+                  : "0 8px 40px oklch(0 0 0 / 0.3), inset 0 1px 0 oklch(1 0 0 / 0.06)",
               }}
             >
               {/* Main content: icon → text → button, centrado vertical */}
@@ -278,11 +279,11 @@ export default function Home() {
                 <div className="text-center">
                   <p
                     className="font-bold text-lg mb-1"
-                    style={{ color: TEXT_MAIN, fontFamily: "'Sora', sans-serif" }}
+                    style={{ color: "oklch(0.93 0.01 264)", fontFamily: "'Sora', sans-serif" }}
                   >
                     {t.hero_drag_here}
                   </p>
-                  <p className="text-sm" style={{ color: TEXT_LIGHT }}>
+                  <p className="text-sm" style={{ color: "oklch(0.60 0.02 264)" }}>
                     {t.hero_auto_convert}
                   </p>
                 </div>
@@ -297,19 +298,19 @@ export default function Home() {
                   {t.hero_upload_btn}
                   <ArrowRight className="w-4 h-4" />
                 </button>
-                <p className="text-xs" style={{ color: TEXT_LIGHT }}>{t.hero_max_size}</p>
+                <p className="text-xs" style={{ color: "oklch(0.55 0.02 264)" }}>{t.hero_max_size}</p>
               </div>
 
               {/* Bottom bar: formats only */}
               <div
                 className="flex flex-wrap items-center justify-center gap-1.5 px-8 py-3 border-t"
-                style={{ borderColor: "oklch(0.47 0.24 264 / 0.10)", backgroundColor: "oklch(0.985 0.003 264 / 0.6)" }}
+                style={{ borderColor: "oklch(1 0 0 / 0.06)", backgroundColor: "oklch(0.10 0.02 264 / 0.5)" }}
               >
                 {["PDF", "Word", "Excel", "PPT", "JPG", "PNG"].map((fmt) => (
                   <span
                     key={fmt}
                     className="text-xs px-2 py-0.5 rounded-md font-medium border"
-                    style={{ backgroundColor: "white", borderColor: BORDER, color: TEXT_MUTED }}
+                    style={{ backgroundColor: "oklch(0.18 0.03 264 / 0.6)", borderColor: "oklch(0.40 0.08 264 / 0.25)", color: "oklch(0.70 0.04 264)" }}
                   >
                     {fmt}
                   </span>
@@ -322,7 +323,7 @@ export default function Home() {
           <div className="max-w-3xl mx-auto w-full mt-8 pb-12">
             <div
               className="grid grid-cols-2 md:grid-cols-4 rounded-2xl border"
-              style={{ borderColor: "oklch(1 0 0 / 0.25)", backgroundColor: "oklch(1 0 0 / 0.45)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderRadius: "1rem", boxShadow: "0 4px 24px oklch(0.13 0.015 264 / 0.06), inset 0 1px 0 oklch(1 0 0 / 0.5)" }}
+              style={{ borderColor: "oklch(0.40 0.10 264 / 0.20)", backgroundColor: "oklch(0.14 0.03 264 / 0.5)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderRadius: "1rem", boxShadow: "0 4px 32px oklch(0 0 0 / 0.3), inset 0 1px 0 oklch(1 0 0 / 0.05)" }}
             >
               {[
                 { value: "15+",   label: (t as any).hero_social_tools ?? "Herramientas PDF", icon: Sparkles },
@@ -333,14 +334,14 @@ export default function Home() {
                 <div
                   key={i}
                   className="flex flex-col items-center gap-0.5 px-4 py-4 text-center border-r last:border-r-0"
-                  style={{ borderColor: "oklch(0.88 0.012 264)" }}
+                  style={{ borderColor: "oklch(0.30 0.05 264 / 0.3)" }}
                 >
-                  <stat.icon className="w-4 h-4 mb-0.5" style={{ color: INDIGO, opacity: 0.45 }} />
+                  <stat.icon className="w-4 h-4 mb-0.5" style={{ color: "oklch(0.65 0.20 264)", opacity: 0.6 }} />
                   <div
                     className="text-xl md:text-2xl font-extrabold leading-none"
                     style={{
                       fontFamily: "'Sora', sans-serif",
-                      background: GRAD,
+                      background: "linear-gradient(135deg, oklch(0.85 0.12 264), oklch(0.75 0.18 290))",
                       WebkitBackgroundClip: "text",
                       WebkitTextFillColor: "transparent",
                       backgroundClip: "text",
@@ -348,7 +349,7 @@ export default function Home() {
                   >
                     {stat.value}
                   </div>
-                  <div className="text-xs font-medium mt-0.5" style={{ color: TEXT_MUTED }}>
+                  <div className="text-xs font-medium mt-0.5" style={{ color: "oklch(0.55 0.02 264)" }}>
                     {stat.label}
                   </div>
                 </div>
