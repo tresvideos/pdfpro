@@ -201,6 +201,7 @@ function PaddleCheckoutForm({
 
       try {
         if (!paddleInitialized.current) {
+          P.Environment.set("sandbox");
           P.Initialize({
             token: clientToken,
             checkout: {

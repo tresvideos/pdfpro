@@ -694,6 +694,7 @@ function DashboardPaddleInline({
     if (!P) return;
     try {
       if (!initialized.current) {
+        P.Environment.set("sandbox");
         P.Initialize({
           token: paddleConfig.clientToken,
           checkout: {
