@@ -171,24 +171,24 @@ export default function Home() {
       {/* ══════════════════════════════════════════════════════════
           HERO
       ══════════════════════════════════════════════════════════ */}
-      <section className="relative overflow-hidden bg-white">
-        {/* Background decoration */}
-        <div className="absolute inset-0 pointer-events-none">
+      <section className="relative overflow-hidden" style={{ background: "linear-gradient(135deg, oklch(0.97 0.015 264), oklch(0.96 0.02 280), oklch(0.97 0.012 250))" }}>
+        {/* Glassmorphism background blobs */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
           <div
-            className="absolute -top-40 -left-40 w-[500px] h-[500px] rounded-full opacity-[0.07]"
-            style={{ background: `radial-gradient(circle, ${INDIGO} 0%, transparent 70%)` }}
+            className="absolute -top-32 -left-32 w-[600px] h-[600px] rounded-full"
+            style={{ background: "radial-gradient(circle, oklch(0.72 0.18 264 / 0.25) 0%, transparent 70%)", filter: "blur(80px)" }}
           />
           <div
-            className="absolute -top-20 right-0 w-[400px] h-[400px] rounded-full opacity-[0.05]"
-            style={{ background: `radial-gradient(circle, ${VIOLET} 0%, transparent 70%)` }}
+            className="absolute top-20 right-[-10%] w-[500px] h-[500px] rounded-full"
+            style={{ background: "radial-gradient(circle, oklch(0.65 0.22 290 / 0.20) 0%, transparent 70%)", filter: "blur(90px)" }}
           />
-          {/* Grid pattern */}
           <div
-            className="absolute inset-0 opacity-[0.025]"
-            style={{
-              backgroundImage: `linear-gradient(oklch(0.47 0.24 264) 1px, transparent 1px), linear-gradient(90deg, oklch(0.47 0.24 264) 1px, transparent 1px)`,
-              backgroundSize: "40px 40px",
-            }}
+            className="absolute bottom-[-10%] left-[30%] w-[450px] h-[450px] rounded-full"
+            style={{ background: "radial-gradient(circle, oklch(0.70 0.16 250 / 0.18) 0%, transparent 70%)", filter: "blur(70px)" }}
+          />
+          <div
+            className="absolute top-[40%] left-[10%] w-[300px] h-[300px] rounded-full"
+            style={{ background: "radial-gradient(circle, oklch(0.75 0.14 220 / 0.12) 0%, transparent 70%)", filter: "blur(60px)" }}
           />
         </div>
 
@@ -256,10 +256,12 @@ export default function Home() {
               className="cursor-pointer rounded-2xl border-2 border-dashed transition-all duration-300"
               style={{
                 borderColor: isDraggingOver ? INDIGO : "oklch(0.47 0.24 264 / 0.28)",
-                backgroundColor: isDraggingOver ? "oklch(0.97 0.02 264)" : "white",
+                backgroundColor: isDraggingOver ? "oklch(0.97 0.02 264 / 0.85)" : "oklch(1 0 0 / 0.55)",
+                backdropFilter: "blur(20px)",
+                WebkitBackdropFilter: "blur(20px)",
                 boxShadow: isDraggingOver
                   ? `0 0 0 5px oklch(0.47 0.24 264 / 0.08), 0 12px 48px oklch(0.47 0.24 264 / 0.12)`
-                  : "0 4px 32px oklch(0.13 0.015 264 / 0.07), 0 1px 4px oklch(0.13 0.015 264 / 0.04)",
+                  : "0 8px 32px oklch(0.13 0.015 264 / 0.08), 0 1px 4px oklch(0.13 0.015 264 / 0.04), inset 0 1px 0 oklch(1 0 0 / 0.6)",
               }}
             >
               {/* Main content: icon → text → button, centrado vertical */}
@@ -301,7 +303,7 @@ export default function Home() {
               {/* Bottom bar: formats only */}
               <div
                 className="flex flex-wrap items-center justify-center gap-1.5 px-8 py-3 border-t"
-                style={{ borderColor: "oklch(0.47 0.24 264 / 0.10)", backgroundColor: SURFACE }}
+                style={{ borderColor: "oklch(0.47 0.24 264 / 0.10)", backgroundColor: "oklch(0.985 0.003 264 / 0.6)" }}
               >
                 {["PDF", "Word", "Excel", "PPT", "JPG", "PNG"].map((fmt) => (
                   <span
@@ -320,7 +322,7 @@ export default function Home() {
           <div className="max-w-3xl mx-auto w-full mt-8 pb-12">
             <div
               className="grid grid-cols-2 md:grid-cols-4 rounded-2xl border"
-              style={{ borderColor: "oklch(0.91 0.012 264)", backgroundColor: "oklch(0.975 0.008 264)", borderRadius: "1rem" }}
+              style={{ borderColor: "oklch(1 0 0 / 0.25)", backgroundColor: "oklch(1 0 0 / 0.45)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderRadius: "1rem", boxShadow: "0 4px 24px oklch(0.13 0.015 264 / 0.06), inset 0 1px 0 oklch(1 0 0 / 0.5)" }}
             >
               {[
                 { value: "15+",   label: (t as any).hero_social_tools ?? "Herramientas PDF", icon: Sparkles },
