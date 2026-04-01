@@ -140,10 +140,9 @@ export async function userHasActiveSubscription(userId: number): Promise<boolean
 
 export async function upsertSubscription(data: {
   userId: number;
-  mollieCustomerId?: string;
-  molliePaymentId?: string;
-  mollieSubscriptionId?: string;
-  mollieMandateId?: string;
+  paddleCustomerId?: string;
+  paddleSubscriptionId?: string;
+  paddleTransactionId?: string;
   plan?: "trial" | "monthly" | "annual";
   status: "active" | "canceled" | "past_due" | "trialing" | "incomplete";
   currentPeriodStart?: Date;

@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
-import { getMollie } from "../mollie";
+import { Paddle, EventName } from "@paddle/paddle-node-sdk";
 import multer from "multer";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
@@ -39,139 +39,141 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // ── Mollie Webhook ───────────────────────────────────────────────────────────
-  app.post("/api/mollie/webhook", express.urlencoded({ extended: true }), async (req, res) => {
-    const paymentId = req.body.id as string;
-    if (!paymentId) {
-      res.status(400).json({ error: "Missing id" });
+  // ── Paddle Webhook (MUST be before express.json) ───────────────────────────────────────────
+  const paddle = new Paddle(process.env.PADDLE_API_KEY || "");
+
+  app.post("/api/paddle/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    const signature = (req.headers["paddle-signature"] as string) || "";
+    const rawBody = req.body.toString();
+    const secretKey = process.env.PADDLE_WEBHOOK_NOTIFICATION_ID || "";
+
+    let eventData: any;
+    try {
+      if (signature && rawBody) {
+        eventData = paddle.webhooks.unmarshal(rawBody, secretKey, signature);
+      } else {
+        console.log("[Paddle Webhook] Missing signature or body");
+        res.status(400).json({ error: "Missing signature" });
+        return;
+      }
+    } catch (err) {
+      console.error("[Paddle Webhook] Signature verification failed:", err);
+      res.status(400).json({ error: "Signature verification failed" });
       return;
     }
 
-    console.log(`[Mollie Webhook] Received notification for ${paymentId}`);
+    console.log(`[Paddle Webhook] Event: ${eventData.eventType} | ID: ${eventData.eventId}`);
 
     try {
-      const mollie = getMollie();
-      const payment = await mollie.payments.get(paymentId);
-      const metadata = typeof payment.metadata === "string" ? JSON.parse(payment.metadata) : (payment.metadata || {});
-      const userId = parseInt(metadata.userId || "0");
+      const data = eventData.data;
+      // Extract userId from custom_data (set during checkout)
+      const customData = data.customData || data.custom_data || {};
+      const userId = parseInt(customData.userId || customData.user_id || "0");
 
-      if (!userId) {
-        console.warn(`[Mollie Webhook] No userId in metadata for payment ${paymentId}`);
-        res.json({ received: true });
-        return;
-      }
-
-      if (payment.status === "paid") {
-        const isRecurring = !!(payment as any).subscriptionId;
-
-        if (!isRecurring) {
-          // First payment completed — create subscription for recurring billing
-          const now = new Date();
-          const trialEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-          const startDate = trialEnd.toISOString().slice(0, 10); // YYYY-MM-DD
-
-          const redirectBase = process.env.MOLLIE_REDIRECT_BASE || "https://cloud-pdf.net";
-
-          // Create recurring subscription (€49.90/month starting after trial)
-          let mollieSubId = "";
-          let mollieMandateId = "";
-          try {
-            const mandates = await mollie.customerMandates.page({ customerId: payment.customerId! });
-            const validMandate = mandates.find((m: any) => m.status === "valid" || m.status === "pending");
-            if (validMandate) {
-              mollieMandateId = validMandate.id;
-            }
-
-            const subscription = await mollie.customerSubscriptions.create({
-              customerId: payment.customerId!,
-              amount: { currency: "EUR", value: "49.90" },
-              interval: "1 month",
-              startDate,
-              description: "CloudPDF Premium — Mensual",
-              webhookUrl: `${redirectBase}/api/mollie/webhook`,
-              metadata: JSON.stringify({ userId }),
-            });
-            mollieSubId = subscription.id;
-            console.log(`[Mollie Webhook] Subscription ${mollieSubId} created for user ${userId}, starts ${startDate}`);
-          } catch (subErr) {
-            console.error("[Mollie Webhook] Failed to create subscription:", subErr);
-          }
+      if (eventData.eventType === EventName.SubscriptionCreated ||
+          eventData.eventType === EventName.SubscriptionActivated ||
+          eventData.eventType === EventName.SubscriptionTrialing) {
+        if (userId) {
+          const billingPeriod = data.currentBillingPeriod || data.current_billing_period;
+          const periodStart = billingPeriod?.startsAt || billingPeriod?.starts_at;
+          const periodEnd = billingPeriod?.endsAt || billingPeriod?.ends_at;
+          const status = data.status === "trialing" ? "trialing" : "active";
 
           await upsertSubscription({
             userId,
-            mollieCustomerId: payment.customerId || undefined,
-            molliePaymentId: payment.id,
-            mollieSubscriptionId: mollieSubId || undefined,
-            mollieMandateId: mollieMandateId || undefined,
-            plan: "trial",
-            status: "active",
-            currentPeriodStart: now,
-            currentPeriodEnd: trialEnd,
+            paddleCustomerId: data.customerId || data.customer_id || undefined,
+            paddleSubscriptionId: data.id || undefined,
+            paddleTransactionId: data.transactionId || data.transaction_id || undefined,
+            plan: data.status === "trialing" ? "trial" : "monthly",
+            status,
+            currentPeriodStart: periodStart ? new Date(periodStart) : new Date(),
+            currentPeriodEnd: periodEnd ? new Date(periodEnd) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
             cancelAtPeriodEnd: false,
           });
 
+          // Mark pending documents as paid
           await markDocumentsPaid(userId);
 
-          // Send confirmation email
+          // Send confirmation email (non-blocking)
           const user = await getUserById(userId);
-          if (user?.email) {
+          if (user?.email && periodEnd) {
             sendPaymentConfirmationEmail({
               to: user.email,
               name: user.name || "Usuario",
-              trialEndDate: trialEnd,
+              trialEndDate: new Date(periodEnd),
               cancelUrl: "https://cloud-pdf.net/cancelar-suscripcion",
             }).catch((err: unknown) => console.error("[Email] Confirmation email failed:", err));
           }
 
-          console.log(`[Mollie Webhook] Trial activated for user ${userId}, ends ${trialEnd.toISOString()}`);
-        } else {
-          // Recurring payment — extend subscription period
-          const now = new Date();
-          const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+          console.log(`[Paddle Webhook] Subscription ${status} for user ${userId}, Paddle Sub: ${data.id}`);
+        }
+      } else if (eventData.eventType === EventName.SubscriptionUpdated) {
+        if (userId) {
+          const billingPeriod = data.currentBillingPeriod || data.current_billing_period;
+          const periodStart = billingPeriod?.startsAt || billingPeriod?.starts_at;
+          const periodEnd = billingPeriod?.endsAt || billingPeriod?.ends_at;
+          const scheduledChange = data.scheduledChange || data.scheduled_change;
+          const cancelAtEnd = scheduledChange?.action === "cancel";
 
           await upsertSubscription({
             userId,
-            mollieCustomerId: payment.customerId || undefined,
-            molliePaymentId: payment.id,
+            paddleCustomerId: data.customerId || data.customer_id || undefined,
+            paddleSubscriptionId: data.id || undefined,
+            plan: data.status === "trialing" ? "trial" : "monthly",
+            status: data.status as "active" | "canceled" | "past_due" | "trialing" | "incomplete",
+            currentPeriodStart: periodStart ? new Date(periodStart) : undefined,
+            currentPeriodEnd: periodEnd ? new Date(periodEnd) : undefined,
+            cancelAtPeriodEnd: cancelAtEnd,
+          });
+          console.log(`[Paddle Webhook] Subscription updated for user ${userId}, status: ${data.status}`);
+        }
+      } else if (eventData.eventType === EventName.SubscriptionCanceled) {
+        if (userId) {
+          await upsertSubscription({
+            userId,
+            paddleCustomerId: data.customerId || data.customer_id || undefined,
+            paddleSubscriptionId: data.id || undefined,
             plan: "monthly",
-            status: "active",
-            currentPeriodStart: now,
-            currentPeriodEnd: periodEnd,
+            status: "canceled",
+            currentPeriodStart: undefined,
+            currentPeriodEnd: undefined,
             cancelAtPeriodEnd: false,
           });
 
-          console.log(`[Mollie Webhook] Recurring payment for user ${userId}, next period ends ${periodEnd.toISOString()}`);
+          // Send cancellation email (non-blocking)
+          const user = await getUserById(userId);
+          if (user?.email) {
+            sendCancellationEmail({
+              to: user.email,
+              name: user.name || "Usuario",
+              accessUntilDate: new Date(),
+              reactivateUrl: "https://cloud-pdf.net/es/dashboard?tab=billing",
+            }).catch((err: unknown) => console.error("[Email] Cancellation email failed:", err));
+          }
+
+          console.log(`[Paddle Webhook] Subscription canceled for user ${userId}`);
         }
-      } else if (payment.status === "failed" || payment.status === "expired" || payment.status === "canceled") {
-        await upsertSubscription({
-          userId,
-          mollieCustomerId: payment.customerId || undefined,
-          molliePaymentId: payment.id,
-          status: payment.status === "failed" ? "past_due" : "canceled",
-          cancelAtPeriodEnd: false,
-        });
-        console.log(`[Mollie Webhook] Payment ${payment.status} for user ${userId}`);
+      } else if (eventData.eventType === EventName.SubscriptionPastDue) {
+        if (userId) {
+          await upsertSubscription({
+            userId,
+            paddleCustomerId: data.customerId || data.customer_id || undefined,
+            paddleSubscriptionId: data.id || undefined,
+            plan: "monthly",
+            status: "past_due",
+            cancelAtPeriodEnd: false,
+          });
+          console.log(`[Paddle Webhook] Subscription past_due for user ${userId}`);
+        }
       }
     } catch (err) {
-      console.error("[Mollie Webhook] Error processing:", err);
+      console.error("[Paddle Webhook] Error processing event:", err);
     }
 
     res.json({ received: true });
   });
 
-  // ── Mollie Return Route (user redirect after payment) ─────────────────────
-  app.get("/api/mollie/return", (_req, res) => {
-    const returnPath = (_req.query.returnPath as string) || "/";
-    // Redirect back to the app with payment=success flag
-    const separator = returnPath.includes("?") ? "&" : "?";
-    res.redirect(`${returnPath}${separator}payment=success`);
-  });
-
-  // Legacy webhook endpoints
-  app.post("/api/paddle/webhook", express.raw({ type: "application/json" }), (_req, res) => {
-    console.log("[Paddle Webhook] Legacy endpoint hit — Paddle is no longer active");
-    res.json({ received: true });
-  });
+  // Legacy Stripe webhook — keep for backwards compatibility during migration
   app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), (_req, res) => {
     console.log("[Stripe Webhook] Legacy endpoint hit — Stripe is no longer active");
     res.json({ received: true });
@@ -223,18 +225,18 @@ async function startServer() {
     // Content Security Policy — comprehensive with frame-ancestors
     res.setHeader("Content-Security-Policy", [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://static.hotjar.com https://*.google-analytics.com https://*.googleadservices.com https://*.googlesyndication.com",
+      "script-src 'self' 'sha256-k8uGMGTuFJwr6QatJlm0mvafWGxfD6d/sfOnYhlPHRc=' 'sha256-gKuu88qDHbph/6RMqDpEXR89DuZ1cDwPWXuwX3aIfd8=' https://www.googletagmanager.com https://cdn.paddle.com https://*.google-analytics.com https://*.googleadservices.com https://*.googlesyndication.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
-      "img-src 'self' data: blob: https://d2xsxph8kpxj0f.cloudfront.net https://pub-9115567915bb439c891a63ec2454650a.r2.dev https://www.google-analytics.com https://www.googletagmanager.com https://*.googleadservices.com https://*.googlesyndication.com https://*.hotjar.com https://lh3.googleusercontent.com",
-      "connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://www.googletagmanager.com https://*.googleadservices.com https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://*.hotjar.com https://*.hotjar.io wss://*.hotjar.com https://d2xsxph8kpxj0f.cloudfront.net https://pub-9115567915bb439c891a63ec2454650a.r2.dev",
-      "frame-src 'self' https://accounts.google.com https://*.hotjar.com",
+      "img-src 'self' data: blob: https://d2xsxph8kpxj0f.cloudfront.net https://pub-9115567915bb439c891a63ec2454650a.r2.dev https://www.google-analytics.com https://www.googletagmanager.com https://*.googleadservices.com https://*.googlesyndication.com https://cdn.paddle.com https://lh3.googleusercontent.com",
+      "connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://www.googletagmanager.com https://*.googleadservices.com https://api.paddle.com https://*.paddle.com https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://d2xsxph8kpxj0f.cloudfront.net https://pub-9115567915bb439c891a63ec2454650a.r2.dev",
+      "frame-src 'self' https://cdn.paddle.com https://*.paddle.com https://accounts.google.com",
       "frame-ancestors 'self'",
       "media-src 'self' blob:",
       "worker-src 'self' blob:",
       "object-src 'none'",
       "base-uri 'self'",
-      "form-action 'self' https://accounts.google.com https://*.mollie.com",
+      "form-action 'self' https://accounts.google.com https://*.paddle.com",
     ].join("; "));
     next();
   });

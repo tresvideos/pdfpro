@@ -1,4 +1,4 @@
-import { getMollie } from "./mollie";
+import { Paddle } from "@paddle/paddle-node-sdk";
 import { z } from "zod";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -58,6 +58,8 @@ import {
 import { storagePut } from "./storage";
 import { sendPaymentConfirmationEmail, sendCancellationEmail } from "./email";
 
+// Paddle SDK instance (server-side)
+const getPaddle = () => new Paddle(process.env.PADDLE_API_KEY || "");
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") {
@@ -208,9 +210,19 @@ export const appRouter = router({
     }),
   }),
 
-  // ─── Subscriptions (Mollie) ────────────────────────────────────
+  // ─── Subscriptions (Paddle) ────────────────────────────────────
   subscription: router({
+    // Returns Paddle config for the frontend
+    paddleConfig: publicProcedure.query(async () => {
+      return {
+        clientToken: process.env.VITE_PADDLE_CLIENT_TOKEN || "",
+        priceId: process.env.VITE_PADDLE_PRICE_ID || "",
+      };
+    }),
+
     status: publicProcedure.query(async ({ ctx }) => {
+      // Public procedure: returns isPremium:false for unauthenticated users
+      // This prevents triggering the global auth redirect when loading the editor
       if (!ctx.user) {
         return { isPremium: false, subscription: null };
       }
@@ -229,69 +241,7 @@ export const appRouter = router({
       };
     }),
 
-    // Create a Mollie first payment (€0.50) and return checkout URL
-    createMolliePayment: protectedProcedure
-      .input(z.object({ returnPath: z.string().optional() }))
-      .mutation(async ({ ctx, input }) => {
-        const user = ctx.user;
-        const mollie = getMollie();
-        const redirectBase = process.env.MOLLIE_REDIRECT_BASE || "https://cloud-pdf.net";
-        const webhookUrl = `${redirectBase}/api/mollie/webhook`;
-
-        // Find or create Mollie customer
-        let mollieCustomerId = "";
-        const existingSub = await getActiveSubscription(user.id);
-        if (existingSub?.mollieCustomerId) {
-          mollieCustomerId = existingSub.mollieCustomerId;
-        } else {
-          const customer = await mollie.customers.create({
-            name: user.name || user.email || "Usuario",
-            email: user.email || undefined,
-            metadata: JSON.stringify({ userId: user.id }),
-          });
-          mollieCustomerId = customer.id;
-        }
-
-        // Save customer ID with incomplete status
-        await upsertSubscription({
-          userId: user.id,
-          mollieCustomerId,
-          status: "incomplete",
-          plan: "trial",
-        });
-
-        // Create first payment (sets up mandate for recurring)
-        const returnPath = input.returnPath || "/";
-        const payment = await mollie.payments.create({
-          amount: { currency: "EUR", value: "0.50" },
-          description: "CloudPDF Trial — 7 días de prueba",
-          sequenceType: "first",
-          customerId: mollieCustomerId,
-          redirectUrl: `${redirectBase}/api/mollie/return?returnPath=${encodeURIComponent(returnPath)}`,
-          webhookUrl,
-          metadata: JSON.stringify({ userId: user.id, returnPath }),
-        });
-
-        // Store payment ID
-        await upsertSubscription({
-          userId: user.id,
-          mollieCustomerId,
-          molliePaymentId: payment.id,
-          status: "incomplete",
-          plan: "trial",
-        });
-
-        console.log(`[Mollie] Payment ${payment.id} created for user ${user.id}, redirecting to checkout`);
-
-        const checkoutUrl = payment.getCheckoutUrl();
-        if (!checkoutUrl) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "No se pudo crear el enlace de pago" });
-        }
-
-        return { checkoutUrl };
-      }),
-
-    // Cancel subscription via Mollie API
+    // Cancel subscription via Paddle API
     cancel: protectedProcedure.mutation(async ({ ctx }) => {
       const sub = await getActiveSubscription(ctx.user.id);
       if (!sub) {
@@ -299,34 +249,86 @@ export const appRouter = router({
         return { success: true };
       }
 
-      // Cancel in Mollie if we have the IDs
-      if (sub.mollieSubscriptionId && sub.mollieCustomerId) {
+      let paddleSubId = sub.paddleSubscriptionId || "";
+      const paddle = getPaddle();
+
+      // If we don't have a paddleSubscriptionId, try to find it via Paddle API
+      if (!paddleSubId && sub.paddleCustomerId) {
         try {
-          const mollie = getMollie();
-          await mollie.customerSubscriptions.delete(sub.mollieCustomerId, sub.mollieSubscriptionId);
-          console.log(`[Mollie] Canceled subscription ${sub.mollieSubscriptionId} for user ${ctx.user.id}`);
-        } catch (err: any) {
-          console.error("[Mollie] Cancel subscription failed:", err);
-          // If already canceled, continue
-          if (!err?.message?.includes("has been canceled")) {
-            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error al cancelar la suscripción. Inténtalo de nuevo." });
+          console.log(`[Paddle] Looking up subscription for customer ${sub.paddleCustomerId}`);
+          const subs = paddle.subscriptions.list({ customerId: [sub.paddleCustomerId], status: ["active", "trialing"] });
+          for await (const s of subs) {
+            paddleSubId = s.id;
+            // Update our DB with the found subscriptionId
+            await upsertSubscription({
+              userId: ctx.user.id,
+              paddleCustomerId: sub.paddleCustomerId ?? undefined,
+              paddleSubscriptionId: paddleSubId,
+              plan: sub.plan ?? "monthly",
+              status: sub.status,
+              currentPeriodStart: sub.currentPeriodStart ?? undefined,
+              currentPeriodEnd: sub.currentPeriodEnd ?? undefined,
+              cancelAtPeriodEnd: false,
+            });
+            break; // Take the first active subscription
           }
+        } catch (err) {
+          console.error("[Paddle] Failed to look up subscription by customer:", err);
         }
       }
 
-      // Keep access until currentPeriodEnd
+      // If we still don't have a paddleSubscriptionId but have a transactionId, try via transaction
+      if (!paddleSubId && sub.paddleTransactionId) {
+        try {
+          console.log(`[Paddle] Looking up subscription via transaction ${sub.paddleTransactionId}`);
+          const txn = await paddle.transactions.get(sub.paddleTransactionId);
+          if (txn.subscriptionId) {
+            paddleSubId = txn.subscriptionId;
+            await upsertSubscription({
+              userId: ctx.user.id,
+              paddleCustomerId: sub.paddleCustomerId ?? undefined,
+              paddleSubscriptionId: paddleSubId,
+              plan: sub.plan ?? "monthly",
+              status: sub.status,
+              currentPeriodStart: sub.currentPeriodStart ?? undefined,
+              currentPeriodEnd: sub.currentPeriodEnd ?? undefined,
+              cancelAtPeriodEnd: false,
+            });
+          }
+        } catch (err) {
+          console.error("[Paddle] Failed to look up subscription via transaction:", err);
+        }
+      }
+
+      // Now cancel in Paddle if we have the ID
+      if (paddleSubId) {
+        try {
+          await paddle.subscriptions.cancel(paddleSubId, {
+            effectiveFrom: "next_billing_period",
+          });
+          console.log(`[Paddle] Successfully canceled subscription ${paddleSubId}`);
+        } catch (err: any) {
+          console.error("[Paddle] Cancel subscription failed:", err);
+          // If it's already canceled, that's fine
+          if (!err?.message?.includes("already_canceled")) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error al cancelar la suscripción en Paddle. Inténtalo de nuevo." });
+          }
+        }
+      } else {
+        console.warn(`[Paddle] No paddleSubscriptionId found for user ${ctx.user.id}, canceling only in DB`);
+      }
+
       await upsertSubscription({
         userId: ctx.user.id,
-        mollieCustomerId: sub.mollieCustomerId ?? undefined,
-        mollieSubscriptionId: sub.mollieSubscriptionId ?? undefined,
+        paddleCustomerId: sub.paddleCustomerId ?? undefined,
+        paddleSubscriptionId: paddleSubId || undefined,
         plan: sub.plan ?? "monthly",
         status: sub.status,
         currentPeriodStart: sub.currentPeriodStart ?? undefined,
         currentPeriodEnd: sub.currentPeriodEnd ?? undefined,
         cancelAtPeriodEnd: true,
       });
-
-      // Send cancellation email
+      // Send cancellation confirmation email (non-blocking)
       const user = ctx.user;
       if (user.email && sub.currentPeriodEnd) {
         sendCancellationEmail({
@@ -338,6 +340,70 @@ export const appRouter = router({
       }
       return { success: true };
     }),
+
+    // Called from the frontend after Paddle Checkout overlay completes
+    // This creates the subscription record immediately (webhook will update it later)
+    confirmPaddleCheckout: protectedProcedure
+      .input(z.object({
+        transactionId: z.string().optional(),
+        subscriptionId: z.string().optional(),
+        customerId: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const user = ctx.user;
+        const now = new Date();
+        const trialEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+        let subscriptionId = input.subscriptionId || "";
+        let customerId = input.customerId || "";
+
+        // If we have a transactionId but no subscriptionId, fetch it from Paddle API
+        if (!subscriptionId && input.transactionId) {
+          try {
+            const paddle = getPaddle();
+            const txn = await paddle.transactions.get(input.transactionId);
+            if (txn.subscriptionId) {
+              subscriptionId = txn.subscriptionId;
+              console.log(`[Paddle] Resolved subscriptionId ${subscriptionId} from transaction ${input.transactionId}`);
+            }
+            if (txn.customerId && !customerId) {
+              customerId = txn.customerId;
+            }
+          } catch (err) {
+            console.error("[Paddle] Failed to fetch transaction details:", err);
+          }
+        }
+
+        await upsertSubscription({
+          userId: user.id,
+          paddleCustomerId: customerId || undefined,
+          paddleSubscriptionId: subscriptionId || undefined,
+          paddleTransactionId: input.transactionId ?? undefined,
+          plan: "trial",
+          status: "active",
+          currentPeriodStart: now,
+          currentPeriodEnd: trialEnd,
+          cancelAtPeriodEnd: false,
+        });
+
+        // Mark all pending documents as paid
+        await markDocumentsPaid(user.id);
+
+        // Send confirmation email (non-blocking)
+        if (user.email) {
+          sendPaymentConfirmationEmail({
+            to: user.email,
+            name: user.name || "Usuario",
+            trialEndDate: trialEnd,
+            cancelUrl: "https://cloud-pdf.net/cancelar-suscripcion",
+          }).catch((err) => console.error("[Email] Confirmation email failed:", err));
+        }
+
+        // Log payment event
+        console.log(`[Payment] Nuevo pago Paddle — Usuario: ${user.name || "Anónimo"} (${user.email || "sin email"}), Plan: Trial 7 días, Sub: ${subscriptionId}, Fin de prueba: ${trialEnd.toLocaleDateString("es-ES")}`);
+
+        return { success: true, subscriptionId };
+      }),
   }),
 
   // ─── Documents ─────────────────────────────────────────────────

@@ -29,16 +29,15 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 /**
- * Subscriptions table — tracks Mollie subscriptions per user.
+ * Subscriptions table — tracks Paddle subscriptions per user.
  */
 export const subscriptions = mysqlTable("subscriptions", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
-  // Mollie fields
-  mollieCustomerId: varchar("mollieCustomerId", { length: 128 }),
-  molliePaymentId: varchar("molliePaymentId", { length: 128 }),
-  mollieSubscriptionId: varchar("mollieSubscriptionId", { length: 128 }),
-  mollieMandateId: varchar("mollieMandateId", { length: 128 }),
+  // Paddle fields
+  paddleCustomerId: varchar("paddleCustomerId", { length: 128 }),
+  paddleSubscriptionId: varchar("paddleSubscriptionId", { length: 128 }),
+  paddleTransactionId: varchar("paddleTransactionId", { length: 128 }),
   plan: mysqlEnum("plan", ["trial", "monthly", "annual"]).default("trial").notNull(),
   status: mysqlEnum("status", ["active", "canceled", "past_due", "trialing", "incomplete"]).default("incomplete").notNull(),
   currentPeriodStart: timestamp("currentPeriodStart"),
