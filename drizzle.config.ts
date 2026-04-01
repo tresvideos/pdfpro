@@ -19,6 +19,6 @@ export default defineConfig({
     user: decodeURIComponent(parsed.username),
     password: decodeURIComponent(parsed.password),
     database: parsed.pathname.slice(1),
-    ssl: "Amazon RDS",
+    ssl: { rejectUnauthorized: false },
   },
 });
