@@ -2015,31 +2015,35 @@ export default function PdfEditor({ initialTool, initialFile, fullscreen, initia
     if (!pdfBytes) return;
     toast.loading("Preparando documento...", { id: "dl" });
 
-    // Step 1: Build the annotated PDF
+    // Step 1: Build the annotated PDF (non-blocking — don't prevent paywall if it fails)
     let pdfOut: Uint8Array | null = null;
     try {
       pdfOut = await buildAnnotatedPdf();
-      if (!pdfOut) throw new Error("Failed to build PDF");
-    } catch {
-      toast.error("Error al generar el PDF", { id: "dl" });
-      return;
+    } catch (err) {
+      console.error("[downloadPdf] buildAnnotatedPdf failed:", err);
     }
 
-    const base64 = uint8ToBase64(pdfOut);
     const docName = file?.name ?? "document.pdf";
-    const docSize = pdfOut.byteLength;
 
     // Step 2: If NOT authenticated → show paywall modal (auth-choice step)
+    // Even if PDF build failed, we can still open paywall (PDF will be rebuilt later via buildPdfForUpload)
     if (!isAuthenticated) {
-      // Store PDF data so the paywall modal can use it after login
-      setPdfDataForPaywall({ base64, name: docName, size: docSize });
+      if (pdfOut) {
+        const base64 = uint8ToBase64(pdfOut);
+        setPdfDataForPaywall({ base64, name: docName, size: pdfOut.byteLength });
+      }
       sessionStorage.setItem("cloudpdf_pending_action", "download");
-      // Also save the original PDF file to session so it survives OAuth redirect
       if (file) {
         try { await savePdfToSession(file); } catch {}
       }
       toast.dismiss("dl");
       setShowPaywall(true);
+      return;
+    }
+
+    // If build failed and user IS authenticated, show error and stop
+    if (!pdfOut) {
+      toast.error("Error al generar el PDF", { id: "dl" });
       return;
     }
 
@@ -2061,7 +2065,8 @@ export default function PdfEditor({ initialTool, initialFile, fullscreen, initia
       }
 
       // Step 5: Not premium → show paywall with PDF data
-      setPdfDataForPaywall({ base64, name: docName, size: docSize });
+      const base64 = uint8ToBase64(pdfOut);
+      setPdfDataForPaywall({ base64, name: docName, size: pdfOut.byteLength });
       toast.dismiss("dl");
       setShowPaywall(true);
     } catch (err) {
