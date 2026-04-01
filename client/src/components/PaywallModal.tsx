@@ -1,10 +1,10 @@
 /*
  * PaywallModal — Mollie redirect checkout
  * - Auth step (Google / email)
- * - Payment step: summary + redirect to Mollie hosted checkout
+ * - Once authenticated, redirect directly to Mollie (no intermediate screen)
  */
-import { useState, useEffect, useCallback, useRef } from "react";
-import { X, Check, Loader2, Mail, CreditCard, ArrowRight, Eye, EyeOff, Lock, Shield } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { X, Loader2, Mail, CreditCard, ArrowRight, Eye, EyeOff, Lock } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -29,167 +29,6 @@ interface PaywallModalProps {
 
 type Step = "auth-choice" | "email-form" | "plans";
 
-// ── Mollie Checkout form (redirect-based) ─────────────────────────────────
-function MollieCheckoutForm({
-  onSuccess,
-  pdfData,
-  thumbnailUrl,
-  buildPdfForUpload,
-}: {
-  onSuccess: (transactionId?: string) => void;
-  pdfData?: PdfPayload;
-  thumbnailUrl?: string;
-  buildPdfForUpload?: () => Promise<{ base64: string; name: string; size: number } | null>;
-}) {
-  const { user } = useAuth();
-  const [isLoading, setIsLoading] = useState(false);
-  const { saveEditedPdfToSession, setPendingPaywall, pendingFile, savePdfToSession } = usePdfFile();
-  const createPayment = trpc.subscription.createMolliePayment.useMutation();
-
-  const handlePayAndDownload = async () => {
-    if (isLoading) return;
-    setIsLoading(true);
-
-    try {
-      // 1. Save PDF data so it survives the Mollie redirect
-      if (pdfData && "base64" in pdfData) {
-        try {
-          await saveEditedPdfToSession(pdfData.base64, pdfData.name, pdfData.size);
-        } catch {}
-      }
-      if (pendingFile) {
-        try { await savePdfToSession(pendingFile); } catch {}
-      }
-      setPendingPaywall(true);
-      sessionStorage.setItem("cloudpdf_pending_action", "download");
-
-      // 2. Create Mollie payment and get checkout URL
-      const returnPath = window.location.pathname + window.location.search;
-      const result = await createPayment.mutateAsync({ returnPath });
-
-      // 3. Redirect to Mollie hosted checkout
-      window.location.href = result.checkoutUrl;
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Error creating payment";
-      toast.error(message);
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col min-h-0">
-      {/* ── Header ── */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-100">
-        <div className="w-7 h-7 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
-          <Check className="w-4 h-4 text-white" />
-        </div>
-        <p className="text-base font-semibold text-slate-800">Your document is ready!</p>
-      </div>
-
-      <div className="flex flex-col md:flex-row min-h-0">
-        {/* ── Left column: Logo + PDF Preview ── */}
-        <div className="hidden md:flex flex-col items-center bg-slate-50 border-r border-slate-100 p-5" style={{ minWidth: 220, maxWidth: 260 }}>
-          <div className="flex items-center gap-1 mb-5">
-            <svg width="28" height="20" viewBox="0 0 32 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-              <path d="M25.5 12.5C25.5 12.5 26 12 26 11c0-2.8-2.2-5-5-5-.5 0-1 .1-1.5.2C18.3 3.7 15.9 2 13 2 9.4 2 6.5 4.9 6.5 8.5c0 .2 0 .4 0 .6C4.5 9.6 3 11.4 3 13.5 3 16 5 18 7.5 18h16c2.2 0 4-1.8 4-4 0-1.5-.8-2.8-2-3.5z" fill="oklch(0.55 0.22 260)" />
-              <rect x="13" y="6" width="6" height="8" rx="0.8" fill="white" fillOpacity="0.9" />
-              <path d="M16.5 6V6L19 8.5H16.5V6Z" fill="oklch(0.45 0.18 260)" />
-            </svg>
-            <span className="font-medium text-lg text-slate-500">Cloud</span>
-            <span className="font-extrabold text-lg" style={{ color: "oklch(0.55 0.22 260)" }}>PDF</span>
-          </div>
-
-          <div
-            className="w-full rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden flex items-center justify-center"
-            style={{ aspectRatio: "0.707", maxHeight: 200 }}
-          >
-            {thumbnailUrl ? (
-              <img src={thumbnailUrl} alt="Document preview" className="w-full h-full object-contain" />
-            ) : (
-              <div className="w-full h-full p-3 flex flex-col gap-2">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-6 h-7 bg-red-100 rounded flex items-center justify-center flex-shrink-0">
-                    <span className="text-red-500 text-[8px] font-bold">PDF</span>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <div className="h-1.5 bg-slate-200 rounded w-full" />
-                    <div className="h-1.5 bg-slate-200 rounded w-3/4" />
-                  </div>
-                </div>
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="h-1.5 bg-slate-100 rounded" style={{ width: `${70 + (i % 3) * 10}%` }} />
-                ))}
-              </div>
-            )}
-          </div>
-          <p className="text-xs text-slate-400 mt-2 text-center leading-tight truncate w-full">
-            {pdfData?.name ?? "documento.pdf"}
-          </p>
-        </div>
-
-        {/* ── Right column: Payment summary + CTA ── */}
-        <div className="flex-1 flex flex-col p-6 gap-5">
-          {/* Trial badge */}
-          <div className="rounded-xl border border-green-200 bg-green-50 p-4">
-            <div className="flex items-center gap-3 mb-2">
-              <Shield className="w-5 h-5 text-green-600 flex-shrink-0" />
-              <p className="font-semibold text-green-800">7 days full access trial</p>
-            </div>
-            <p className="text-sm text-green-700 leading-relaxed">
-              Pay just <strong>0,50 &euro;</strong> today to activate your trial. After 7 days, your plan renews at <strong>49,90 &euro;/month</strong>. Cancel anytime from your dashboard.
-            </p>
-          </div>
-
-          {/* Price breakdown */}
-          <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
-            <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm text-slate-600">Due today</span>
-              <span className="text-lg font-bold text-slate-900">0,50 &euro;</span>
-            </div>
-            <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm text-slate-500">After 7 days</span>
-              <span className="text-sm font-medium text-slate-500">49,90 &euro;/month</span>
-            </div>
-          </div>
-
-          {/* Features */}
-          <div className="space-y-2">
-            {[
-              "Unlimited PDF editing & downloads",
-              "All conversion tools included",
-              "SSL 256-bit encrypted",
-              "Cancel anytime — no commitment",
-            ].map((feat) => (
-              <div key={feat} className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                <span className="text-sm text-slate-600">{feat}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* CTA */}
-          <button
-            onClick={handlePayAndDownload}
-            disabled={isLoading}
-            className="w-full flex items-center justify-center gap-2 py-4 rounded-xl bg-[#1a3c6e] text-white font-bold text-base hover:bg-[#15305a] transition-all disabled:opacity-60"
-          >
-            {isLoading ? (
-              <><Loader2 className="w-5 h-5 animate-spin" /> Redirecting to payment...</>
-            ) : (
-              <><CreditCard className="w-5 h-5" /> Pay 0,50 &euro; and download</>
-            )}
-          </button>
-
-          <div className="flex items-center justify-center gap-4 text-xs text-slate-400">
-            <span className="flex items-center gap-1"><Lock className="w-3 h-3" /> Secure payment</span>
-            <span>Powered by Mollie</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Main modal ────────────────────────────────────────────────────────────────
 export default function PaywallModal({
   isOpen,
@@ -210,14 +49,46 @@ export default function PaywallModal({
   const [showPassword, setShowPassword] = useState(false);
   const [emailMode, setEmailMode] = useState<"register" | "login">("register");
   const [emailLoading, setEmailLoading] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
+  const redirectTriggered = useRef(false);
   const registerMutation = trpc.auth.register.useMutation();
   const loginMutation = trpc.auth.login.useMutation();
+  const createPayment = trpc.subscription.createMolliePayment.useMutation();
   const { refresh } = useAuth();
 
-  if (!isOpen) return null;
-
   const currentStep = isAuthenticated ? "plans" : step;
-  const effectivePdfData = pdfData ?? pendingEditedPdf ?? undefined;
+
+  // Auto-redirect to Mollie as soon as user is authenticated
+  useEffect(() => {
+    if (!isOpen || !isAuthenticated || redirectTriggered.current) return;
+    redirectTriggered.current = true;
+    setRedirecting(true);
+
+    (async () => {
+      try {
+        // Save PDF data so it survives the redirect
+        if (pdfData && "base64" in pdfData) {
+          try { await saveEditedPdfToSession(pdfData.base64, pdfData.name, pdfData.size); } catch {}
+        }
+        if (pendingFile) {
+          try { await savePdfToSession(pendingFile); } catch {}
+        }
+        setPendingPaywall(true);
+        sessionStorage.setItem("cloudpdf_pending_action", "download");
+
+        const returnPath = window.location.pathname + window.location.search;
+        const result = await createPayment.mutateAsync({ returnPath });
+        window.location.href = result.checkoutUrl;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Error creating payment";
+        toast.error(message);
+        setRedirecting(false);
+        redirectTriggered.current = false;
+      }
+    })();
+  }, [isOpen, isAuthenticated]);
+
+  if (!isOpen) return null;
 
   const handleGoogleLogin = async () => {
     if (pendingFile) {
@@ -278,7 +149,7 @@ export default function PaywallModal({
     >
       <div
         className="relative w-full bg-white rounded-2xl shadow-2xl overflow-hidden"
-        style={{ maxWidth: currentStep === "plans" ? 720 : 520, maxHeight: "92vh", overflowY: "auto" }}
+        style={{ maxWidth: 520, maxHeight: "92vh", overflowY: "auto" }}
       >
         <button
           onClick={onClose}
@@ -415,14 +286,12 @@ export default function PaywallModal({
           </div>
         )}
 
-        {/* ── Plans: payment step ── */}
+        {/* ── Redirect to Mollie (no intermediate screen) ── */}
         {currentStep === "plans" && (
-          <MollieCheckoutForm
-            onSuccess={handlePaymentSuccess}
-            pdfData={effectivePdfData}
-            thumbnailUrl={thumbnailUrl}
-            buildPdfForUpload={buildPdfForUpload}
-          />
+          <div className="flex flex-col items-center justify-center gap-4 p-12">
+            <Loader2 className="w-8 h-8 animate-spin text-[#1a3c6e]" />
+            <p className="text-sm text-gray-500">Redirecting to secure payment...</p>
+          </div>
         )}
       </div>
     </div>
