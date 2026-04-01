@@ -670,96 +670,6 @@ function TeamTab() {
   );
 }
 
-// ─── Paddle Inline Checkout (Dashboard) ──────────────────────
-function DashboardPaddleInline({
-  paddleConfig,
-  user,
-  onComplete,
-}: {
-  paddleConfig?: { clientToken: string; priceId: string } | null;
-  user?: { id: number; email: string | null; name?: string | null } | null;
-  onComplete: (data: any) => void;
-}) {
-  const [ready, setReady] = useState(false);
-  const initialized = useRef(false);
-  const opened = useRef(false);
-
-  const handleComplete = useCallback((eventData: any) => {
-    onComplete(eventData);
-  }, [onComplete]);
-
-  useEffect(() => {
-    if (!paddleConfig?.clientToken || !paddleConfig?.priceId) return;
-    const P = (window as any).Paddle;
-    if (!P) return;
-    try {
-      if (!initialized.current) {
-        P.Initialize({
-          token: paddleConfig.clientToken,
-          checkout: {
-            settings: {
-              displayMode: "inline",
-              frameTarget: "dashboard-paddle-checkout",
-              frameInitialHeight: "450",
-              frameStyle: "width: 100%; min-width: 312px; background-color: transparent; border: none;",
-            },
-          },
-          eventCallback: (event: any) => {
-            if (event.name === "checkout.loaded") setReady(true);
-            if (event.name === "checkout.completed") handleComplete(event.data);
-          },
-        });
-        initialized.current = true;
-      } else {
-        P.Update({
-          eventCallback: (event: any) => {
-            if (event.name === "checkout.loaded") setReady(true);
-            if (event.name === "checkout.completed") handleComplete(event.data);
-          },
-        });
-      }
-      if (!opened.current) {
-        P.Checkout.open({
-          items: [{ priceId: paddleConfig.priceId, quantity: 1 }],
-          customer: { email: user?.email || undefined },
-          customData: {
-            user_id: user?.id?.toString() || "",
-            user_email: user?.email || "",
-            user_name: user?.name || "",
-          },
-          settings: { locale: "es", allowLogout: false, showAddDiscounts: true },
-        });
-        opened.current = true;
-      }
-    } catch (err) {
-      console.error("[Paddle] Dashboard inline error:", err);
-    }
-  }, [paddleConfig, user, handleComplete]);
-
-  useEffect(() => {
-    return () => {
-      if (opened.current && (window as any).Paddle) {
-        try { (window as any).Paddle.Checkout.close(); } catch {}
-      }
-    };
-  }, []);
-
-  return (
-    <div>
-      {!ready && (
-        <div className="flex items-center justify-center py-10">
-          <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-          <span className="ml-2 text-sm text-slate-500">Cargando formulario de pago...</span>
-        </div>
-      )}
-      <div
-        className="dashboard-paddle-checkout"
-        style={{ minHeight: ready ? "auto" : 0, opacity: ready ? 1 : 0, transition: "opacity 0.3s ease" }}
-      />
-    </div>
-  );
-}
-
 // ─── Billing Tab ──────────────────────────────────────────────
 function BillingTab() {
   const { user } = useAuth();
@@ -768,21 +678,17 @@ function BillingTab() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showInlineCheckout, setShowInlineCheckout] = useState(false);
 
-  const paddleConfigQ = trpc.subscription.paddleConfig.useQuery();
-  const confirmPaddleCheckout = trpc.subscription.confirmPaddleCheckout.useMutation({
-    onSuccess: () => {
-      utils.subscription.status.invalidate();
-      setShowInlineCheckout(false);
-      toast.success("¡Suscripción activada correctamente!");
-    },
-    onError: () => toast.error("Error al confirmar el pago"),
-  });
+  const createPayment = trpc.subscription.createMolliePayment.useMutation();
 
-  const openInlineCheckout = () => {
-    setShowInlineCheckout(true);
-    setTimeout(() => {
-      document.getElementById("billing-checkout-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 100);
+  const openInlineCheckout = async () => {
+    try {
+      setShowInlineCheckout(true);
+      const result = await createPayment.mutateAsync({ returnPath: window.location.pathname + "?tab=billing" });
+      window.location.href = result.checkoutUrl;
+    } catch {
+      toast.error("Error al crear el pago");
+      setShowInlineCheckout(false);
+    }
   };
 
   const cancelMutation = trpc.subscription.cancel.useMutation({
@@ -955,44 +861,11 @@ function BillingTab() {
         </div>
       )}
 
-      {/* Inline Paddle Checkout */}
+      {/* Redirecting to Mollie checkout */}
       {showInlineCheckout && !isPremium && (
-        <div id="billing-checkout-section" className="bg-white rounded-2xl shadow-sm border border-blue-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between" style={{ backgroundColor: "oklch(0.98 0.005 250)" }}>
-            <div className="flex items-center gap-2">
-              <CreditCard size={18} className="text-blue-600" />
-              <h3 className="font-bold text-slate-800">Completa tu suscripción</h3>
-            </div>
-            <button onClick={() => setShowInlineCheckout(false)} className="text-sm text-slate-500 hover:text-slate-700 hover:underline">Cancelar</button>
-          </div>
-          <DashboardPaddleInline
-            paddleConfig={paddleConfigQ.data}
-            user={user}
-            onComplete={(data: any) => {
-              const txnId = data.transaction_id || data.subscription_id || "";
-              // Google Ads conversion tracking
-              if (typeof window.gtag === "function") {
-                window.gtag("event", "conversion", {
-                  send_to: "AW-18038662610",
-          value: 0,
-          currency: "EUR",
-          transaction_id: txnId,
-        });
-        window.gtag("event", "purchase", {
-          transaction_id: txnId,
-          value: 0,
-          currency: "EUR",
-          items: [{ item_id: "cloudpdf_trial", item_name: "CloudPDF Trial Subscription", price: 0, quantity: 1 }],
-                });
-                console.log("[Dashboard] Conversion tracking fired", { txnId });
-              }
-              confirmPaddleCheckout.mutate({
-                transactionId: data.transaction_id || "",
-                subscriptionId: data.subscription_id || "",
-                customerId: data.customer_id || "",
-              });
-            }}
-          />
+        <div className="bg-white rounded-2xl shadow-sm border border-blue-200 p-8 flex items-center justify-center">
+          <Loader2 className="w-6 h-6 animate-spin text-blue-600 mr-2" />
+          <span className="text-sm text-slate-600">Redirigiendo al pago...</span>
         </div>
       )}
 

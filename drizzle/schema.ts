@@ -39,10 +39,15 @@ export const subscriptions = mysqlTable("subscriptions", {
   stripeSubscriptionId: varchar("stripeSubscriptionId", { length: 128 }),
   stripePriceId: varchar("stripePriceId", { length: 128 }),
   stripeSessionId: varchar("stripeSessionId", { length: 256 }),
-  // Paddle fields
+  // Paddle fields (legacy)
   paddleCustomerId: varchar("paddleCustomerId", { length: 128 }),
   paddleSubscriptionId: varchar("paddleSubscriptionId", { length: 128 }),
   paddleTransactionId: varchar("paddleTransactionId", { length: 128 }),
+  // Mollie fields
+  mollieCustomerId: varchar("mollieCustomerId", { length: 128 }),
+  molliePaymentId: varchar("molliePaymentId", { length: 128 }),
+  mollieSubscriptionId: varchar("mollieSubscriptionId", { length: 128 }),
+  mollieMandateId: varchar("mollieMandateId", { length: 128 }),
   plan: mysqlEnum("plan", ["trial", "monthly", "annual"]).default("trial").notNull(),
   status: mysqlEnum("status", ["active", "canceled", "past_due", "trialing", "incomplete"]).default("incomplete").notNull(),
   currentPeriodStart: timestamp("currentPeriodStart"),

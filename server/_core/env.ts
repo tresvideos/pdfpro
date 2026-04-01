@@ -7,9 +7,9 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-  paddleApiKey: process.env.PADDLE_API_KEY ?? "",
-  paddleWebhookNotificationId: process.env.PADDLE_WEBHOOK_NOTIFICATION_ID ?? "",
-  paddlePriceId: process.env.VITE_PADDLE_PRICE_ID ?? "",
+  mollieApiKey: process.env.MOLLIE_API_KEY ?? "",
+  mollieProfileId: process.env.MOLLIE_PROFILE_ID ?? "",
+  mollieRedirectBase: process.env.MOLLIE_REDIRECT_BASE ?? "https://cloud-pdf.net",
   // Cloudflare R2 storage
   r2AccountId: process.env.CF_R2_ACCOUNT_ID ?? process.env.R2_ACCOUNT_ID ?? "",
   r2AccessKeyId: process.env.CF_R2_ACCESS_KEY_ID ?? process.env.R2_ACCESS_KEY_ID ?? "",

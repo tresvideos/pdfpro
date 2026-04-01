@@ -147,6 +147,10 @@ export async function upsertSubscription(data: {
   paddleCustomerId?: string;
   paddleSubscriptionId?: string;
   paddleTransactionId?: string;
+  mollieCustomerId?: string;
+  molliePaymentId?: string;
+  mollieSubscriptionId?: string;
+  mollieMandateId?: string;
   plan?: "trial" | "monthly" | "annual";
   status: "active" | "canceled" | "past_due" | "trialing" | "incomplete";
   currentPeriodStart?: Date;
