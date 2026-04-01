@@ -258,7 +258,10 @@ function PaddleCheckoutForm({
             items,
             customer: {
               email: user?.email || undefined,
-              address: { countryCode },
+              address: {
+                countryCode,
+                postalCode: countryCode === "ES" ? "28001" : countryCode === "FR" ? "75001" : countryCode === "DE" ? "10115" : countryCode === "IT" ? "00100" : countryCode === "PT" ? "1000-001" : countryCode === "NL" ? "1011" : countryCode === "PL" ? "00-001" : countryCode === "US" ? "10001" : countryCode === "CN" ? "100000" : "28001",
+              },
             },
             customData: {
               user_id: user?.id?.toString() || "",
@@ -268,7 +271,7 @@ function PaddleCheckoutForm({
             settings: {
               locale: lang || "es",
               allowLogout: false,
-              showAddDiscounts: true,
+              showAddDiscounts: false,
             },
           });
 

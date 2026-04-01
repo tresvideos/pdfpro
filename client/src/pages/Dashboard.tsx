@@ -723,15 +723,17 @@ function DashboardPaddleInline({
         const langMatch = window.location.pathname.match(/^\/([a-z]{2})(\/|$)/);
         const currentLang = langMatch ? langMatch[1] : "es";
         const langToCountry: Record<string, string> = { es: "ES", en: "US", fr: "FR", de: "DE", pt: "PT", it: "IT", nl: "NL", pl: "PL", ru: "RU", zh: "CN" };
+        const cc = langToCountry[currentLang] || "ES";
+        const defaultPostal: Record<string, string> = { ES: "28001", FR: "75001", DE: "10115", IT: "00100", PT: "1000-001", NL: "1011", PL: "00-001", US: "10001", CN: "100000", RU: "101000" };
         P.Checkout.open({
           items: [{ priceId: paddleConfig.priceId, quantity: 1 }],
-          customer: { email: user?.email || undefined, address: { countryCode: langToCountry[currentLang] || "ES" } },
+          customer: { email: user?.email || undefined, address: { countryCode: cc, postalCode: defaultPostal[cc] || "28001" } },
           customData: {
             user_id: user?.id?.toString() || "",
             user_email: user?.email || "",
             user_name: user?.name || "",
           },
-          settings: { locale: currentLang || "es", allowLogout: false, showAddDiscounts: true },
+          settings: { locale: currentLang || "es", allowLogout: false, showAddDiscounts: false },
         });
         opened.current = true;
       }
