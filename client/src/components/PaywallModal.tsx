@@ -58,9 +58,11 @@ export default function PaywallModal({
 
   const currentStep = isAuthenticated ? "plans" : step;
 
-  // Auto-redirect to Mollie as soon as user is authenticated
+  // Redirect to Mollie when user reaches "plans" step — but NOT if returning from payment
+  const isReturningFromPayment = typeof window !== "undefined" && window.location.search.includes("payment=success");
+
   useEffect(() => {
-    if (!isOpen || !isAuthenticated || redirectTriggered.current) return;
+    if (!isOpen || currentStep !== "plans" || redirectTriggered.current || isReturningFromPayment) return;
     redirectTriggered.current = true;
     setRedirecting(true);
 
@@ -86,7 +88,7 @@ export default function PaywallModal({
         redirectTriggered.current = false;
       }
     })();
-  }, [isOpen, isAuthenticated]);
+  }, [isOpen, currentStep]);
 
   if (!isOpen) return null;
 
