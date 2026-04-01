@@ -29,20 +29,11 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 /**
- * Subscriptions table — tracks Paddle (and legacy Stripe) subscriptions per user.
+ * Subscriptions table — tracks Mollie subscriptions per user.
  */
 export const subscriptions = mysqlTable("subscriptions", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
-  // Legacy Stripe fields (kept for historical data)
-  stripeCustomerId: varchar("stripeCustomerId", { length: 128 }),
-  stripeSubscriptionId: varchar("stripeSubscriptionId", { length: 128 }),
-  stripePriceId: varchar("stripePriceId", { length: 128 }),
-  stripeSessionId: varchar("stripeSessionId", { length: 256 }),
-  // Paddle fields (legacy)
-  paddleCustomerId: varchar("paddleCustomerId", { length: 128 }),
-  paddleSubscriptionId: varchar("paddleSubscriptionId", { length: 128 }),
-  paddleTransactionId: varchar("paddleTransactionId", { length: 128 }),
   // Mollie fields
   mollieCustomerId: varchar("mollieCustomerId", { length: 128 }),
   molliePaymentId: varchar("molliePaymentId", { length: 128 }),

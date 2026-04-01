@@ -140,13 +140,6 @@ export async function userHasActiveSubscription(userId: number): Promise<boolean
 
 export async function upsertSubscription(data: {
   userId: number;
-  stripeCustomerId?: string;
-  stripeSubscriptionId?: string;
-  stripePriceId?: string;
-  stripeSessionId?: string;
-  paddleCustomerId?: string;
-  paddleSubscriptionId?: string;
-  paddleTransactionId?: string;
   mollieCustomerId?: string;
   molliePaymentId?: string;
   mollieSubscriptionId?: string;
