@@ -58,8 +58,8 @@ import {
 import { storagePut } from "./storage";
 import { sendPaymentConfirmationEmail, sendCancellationEmail } from "./email";
 
-// Paddle SDK instance (server-side)
-const getPaddle = () => new Paddle(process.env.PADDLE_API_KEY || "");
+// Paddle SDK instance (server-side) — sandbox for testing
+const getPaddle = () => new Paddle(process.env.PADDLE_API_KEY || "", { environment: "sandbox" });
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") {

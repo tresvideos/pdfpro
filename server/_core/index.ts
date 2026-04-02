@@ -40,7 +40,7 @@ async function startServer() {
   const server = createServer(app);
 
   // ── Paddle Webhook (MUST be before express.json) ───────────────────────────────────────────
-  const paddle = new Paddle(process.env.PADDLE_API_KEY || "");
+  const paddle = new Paddle(process.env.PADDLE_API_KEY || "", { environment: "sandbox" });
 
   app.post("/api/paddle/webhook", express.raw({ type: "application/json" }), async (req, res) => {
     const signature = (req.headers["paddle-signature"] as string) || "";
