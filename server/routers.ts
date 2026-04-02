@@ -220,7 +220,7 @@ export const appRouter = router({
       };
     }),
 
-    // Create a Paddle transaction with €0.50 trial fee + €49.90/month recurring (7-day trial)
+    // Create a Paddle transaction with trial pricing
     createTrialTransaction: protectedProcedure.mutation(async ({ ctx }) => {
       const paddle = getPaddle();
       const priceId = process.env.VITE_PADDLE_PRICE_ID || "";
@@ -228,39 +228,36 @@ export const appRouter = router({
       // Get product ID from the existing price
       const existingPrice = await paddle.prices.get(priceId);
       const productId = existingPrice.productId;
+      console.log(`[Paddle] Creating trial transaction: priceId=${priceId}, productId=${productId}`);
 
-      const transaction = await paddle.transactions.create({
-        items: [
-          {
-            quantity: 1,
-            price: {
-              productId,
-              name: "CloudPDF Premium",
-              description: "Suscripción mensual — 7 días de prueba gratis",
-              billingCycle: { interval: "month", frequency: 1 },
-              trialPeriod: { interval: "day", frequency: 7 },
-              unitPrice: { amount: "4990", currencyCode: "EUR" },
+      try {
+        const transaction = await paddle.transactions.create({
+          items: [
+            {
+              quantity: 1,
+              price: {
+                productId,
+                name: "CloudPDF Premium",
+                description: "49,90€/mes — 7 días de prueba gratis",
+                billingCycle: { interval: "month", frequency: 1 },
+                trialPeriod: { interval: "day", frequency: 7 },
+                unitPrice: { amount: "4990", currencyCode: "EUR" },
+              },
             },
+          ],
+          customData: {
+            user_id: ctx.user.id.toString(),
+            user_email: ctx.user.email || "",
+            user_name: ctx.user.name || "",
           },
-          {
-            quantity: 1,
-            price: {
-              productId,
-              name: "Activación trial",
-              description: "Cargo único de activación",
-              unitPrice: { amount: "50", currencyCode: "EUR" },
-            },
-          },
-        ],
-        customData: {
-          user_id: ctx.user.id.toString(),
-          user_email: ctx.user.email || "",
-          user_name: ctx.user.name || "",
-        },
-      });
+        });
 
-      console.log(`[Paddle] Trial transaction ${transaction.id} created for user ${ctx.user.id}`);
-      return { transactionId: transaction.id };
+        console.log(`[Paddle] Trial transaction ${transaction.id} created for user ${ctx.user.id}`);
+        return { transactionId: transaction.id };
+      } catch (err: any) {
+        console.error("[Paddle] createTrialTransaction failed:", err?.message || err, JSON.stringify(err?.errors || err?.body || ""));
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error creating checkout" });
+      }
     }),
 
     status: publicProcedure.query(async ({ ctx }) => {
