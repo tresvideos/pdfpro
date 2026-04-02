@@ -250,85 +250,80 @@ export const appRouter = router({
       }
 
       let paddleSubId = sub.paddleSubscriptionId || "";
+      let paddleCustId = sub.paddleCustomerId || "";
       const paddle = getPaddle();
 
-      // If we don't have a paddleSubscriptionId, try to find it via Paddle API
-      if (!paddleSubId && sub.paddleCustomerId) {
+      // Resolve subscriptionId and customerId from transactionId if missing
+      if ((!paddleSubId || !paddleCustId) && sub.paddleTransactionId) {
         try {
-          console.log(`[Paddle] Looking up subscription for customer ${sub.paddleCustomerId}`);
-          const subs = paddle.subscriptions.list({ customerId: [sub.paddleCustomerId], status: ["active", "trialing"] });
+          console.log(`[Paddle] Resolving IDs from transaction ${sub.paddleTransactionId}`);
+          const txn = await paddle.transactions.get(sub.paddleTransactionId);
+          if (txn.subscriptionId && !paddleSubId) paddleSubId = txn.subscriptionId;
+          if (txn.customerId && !paddleCustId) paddleCustId = txn.customerId;
+          console.log(`[Paddle] Resolved: subId=${paddleSubId}, custId=${paddleCustId}`);
+          // Save resolved IDs to DB
+          if (paddleSubId || paddleCustId) {
+            await upsertSubscription({
+              userId: ctx.user.id,
+              paddleCustomerId: paddleCustId || undefined,
+              paddleSubscriptionId: paddleSubId || undefined,
+              paddleTransactionId: sub.paddleTransactionId ?? undefined,
+              plan: sub.plan ?? "monthly",
+              status: sub.status,
+              currentPeriodStart: sub.currentPeriodStart ?? undefined,
+              currentPeriodEnd: sub.currentPeriodEnd ?? undefined,
+              cancelAtPeriodEnd: false,
+            });
+          }
+        } catch (err) {
+          console.error("[Paddle] Failed to resolve IDs from transaction:", err);
+        }
+      }
+
+      // Fallback: search by customer ID
+      if (!paddleSubId && paddleCustId) {
+        try {
+          console.log(`[Paddle] Searching subscriptions for customer ${paddleCustId}`);
+          const subs = paddle.subscriptions.list({ customerId: [paddleCustId], status: ["active", "trialing"] });
           for await (const s of subs) {
             paddleSubId = s.id;
-            // Update our DB with the found subscriptionId
-            await upsertSubscription({
-              userId: ctx.user.id,
-              paddleCustomerId: sub.paddleCustomerId ?? undefined,
-              paddleSubscriptionId: paddleSubId,
-              plan: sub.plan ?? "monthly",
-              status: sub.status,
-              currentPeriodStart: sub.currentPeriodStart ?? undefined,
-              currentPeriodEnd: sub.currentPeriodEnd ?? undefined,
-              cancelAtPeriodEnd: false,
-            });
-            break; // Take the first active subscription
+            break;
           }
+          console.log(`[Paddle] Found subscription: ${paddleSubId}`);
         } catch (err) {
-          console.error("[Paddle] Failed to look up subscription by customer:", err);
+          console.error("[Paddle] Failed to list subscriptions by customer:", err);
         }
       }
 
-      // If we still don't have a paddleSubscriptionId but have a transactionId, try via transaction
-      if (!paddleSubId && sub.paddleTransactionId) {
-        try {
-          console.log(`[Paddle] Looking up subscription via transaction ${sub.paddleTransactionId}`);
-          const txn = await paddle.transactions.get(sub.paddleTransactionId);
-          if (txn.subscriptionId) {
-            paddleSubId = txn.subscriptionId;
-            await upsertSubscription({
-              userId: ctx.user.id,
-              paddleCustomerId: sub.paddleCustomerId ?? undefined,
-              paddleSubscriptionId: paddleSubId,
-              plan: sub.plan ?? "monthly",
-              status: sub.status,
-              currentPeriodStart: sub.currentPeriodStart ?? undefined,
-              currentPeriodEnd: sub.currentPeriodEnd ?? undefined,
-              cancelAtPeriodEnd: false,
-            });
-          }
-        } catch (err) {
-          console.error("[Paddle] Failed to look up subscription via transaction:", err);
-        }
-      }
-
-      // Now cancel in Paddle if we have the ID
+      // Cancel in Paddle
       if (paddleSubId) {
         try {
           await paddle.subscriptions.cancel(paddleSubId, {
             effectiveFrom: "next_billing_period",
           });
-          console.log(`[Paddle] Successfully canceled subscription ${paddleSubId}`);
+          console.log(`[Paddle] Canceled subscription ${paddleSubId}`);
         } catch (err: any) {
-          console.error("[Paddle] Cancel subscription failed:", err);
-          // If it's already canceled, that's fine
-          if (!err?.message?.includes("already_canceled")) {
+          console.error("[Paddle] Cancel failed:", err?.message || err);
+          if (!err?.message?.includes("already_canceled") && !err?.message?.includes("already canceled")) {
             throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error al cancelar la suscripción en Paddle. Inténtalo de nuevo." });
           }
         }
       } else {
-        console.warn(`[Paddle] No paddleSubscriptionId found for user ${ctx.user.id}, canceling only in DB`);
+        console.warn(`[Paddle] No subscriptionId found for user ${ctx.user.id} — canceling only in DB`);
       }
 
       await upsertSubscription({
         userId: ctx.user.id,
-        paddleCustomerId: sub.paddleCustomerId ?? undefined,
+        paddleCustomerId: paddleCustId || undefined,
         paddleSubscriptionId: paddleSubId || undefined,
+        paddleTransactionId: sub.paddleTransactionId ?? undefined,
         plan: sub.plan ?? "monthly",
         status: sub.status,
         currentPeriodStart: sub.currentPeriodStart ?? undefined,
         currentPeriodEnd: sub.currentPeriodEnd ?? undefined,
         cancelAtPeriodEnd: true,
       });
-      // Send cancellation confirmation email (non-blocking)
+
       const user = ctx.user;
       if (user.email && sub.currentPeriodEnd) {
         sendCancellationEmail({
@@ -357,18 +352,18 @@ export const appRouter = router({
         let subscriptionId = input.subscriptionId || "";
         let customerId = input.customerId || "";
 
-        // If we have a transactionId but no subscriptionId, fetch it from Paddle API
-        if (!subscriptionId && input.transactionId) {
+        // Always try to resolve all IDs from the transaction
+        if (input.transactionId) {
           try {
             const paddle = getPaddle();
             const txn = await paddle.transactions.get(input.transactionId);
-            if (txn.subscriptionId) {
+            if (txn.subscriptionId && !subscriptionId) {
               subscriptionId = txn.subscriptionId;
-              console.log(`[Paddle] Resolved subscriptionId ${subscriptionId} from transaction ${input.transactionId}`);
             }
             if (txn.customerId && !customerId) {
               customerId = txn.customerId;
             }
+            console.log(`[Paddle] confirmCheckout resolved: txn=${input.transactionId}, sub=${subscriptionId}, cust=${customerId}`);
           } catch (err) {
             console.error("[Paddle] Failed to fetch transaction details:", err);
           }
