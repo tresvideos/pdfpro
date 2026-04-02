@@ -683,7 +683,6 @@ function DashboardPaddleInline({
   const [ready, setReady] = useState(false);
   const initialized = useRef(false);
   const opened = useRef(false);
-  const createTrialTxn = trpc.subscription.createTrialTransaction.useMutation();
 
   const handleComplete = useCallback((eventData: any) => {
     onComplete(eventData);
@@ -727,16 +726,13 @@ function DashboardPaddleInline({
         const cc = langToCountry[currentLang] || "ES";
         const defaultPostal: Record<string, string> = { ES: "28001", FR: "75001", DE: "10115", IT: "00100", PT: "1000-001", NL: "1011", PL: "00-001", US: "10001", CN: "100000", RU: "101000" };
 
-        createTrialTxn.mutateAsync().then(({ transactionId }) => {
-          P.Checkout.open({
-            transactionId,
-            customer: { email: user?.email || undefined, address: { countryCode: cc, postalCode: defaultPostal[cc] || "28001" } },
-            settings: { locale: currentLang || "es", allowLogout: false, showAddDiscounts: false },
-          });
-          opened.current = true;
-        }).catch((err: any) => {
-          console.error("[Paddle] Failed to create trial transaction:", err);
+        P.Checkout.open({
+          items: [{ priceId: paddleConfig.priceId, quantity: 1 }],
+          customer: { email: user?.email || undefined, address: { countryCode: cc, postalCode: defaultPostal[cc] || "28001" } },
+          customData: { user_id: user?.id?.toString() || "", user_email: user?.email || "", user_name: user?.name || "" },
+          settings: { locale: currentLang || "es", allowLogout: false, showAddDiscounts: false },
         });
+        opened.current = true;
       }
     } catch (err) {
       console.error("[Paddle] Dashboard inline error:", err);
