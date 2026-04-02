@@ -703,7 +703,7 @@ export default function PdfEditor({ initialTool, initialFile, fullscreen, initia
           if (out) {
             setPdfDataForPaywall({
               base64: uint8ToBase64(out),
-              name: file?.name ?? "document.pdf",
+              name: displayName ?? file?.name ?? "document.pdf",
               size: out.byteLength,
             });
           }
@@ -1966,7 +1966,7 @@ export default function PdfEditor({ initialTool, initialFile, fullscreen, initia
     const blob = new Blob([pdfOut.buffer.slice(pdfOut.byteOffset, pdfOut.byteOffset + pdfOut.byteLength) as ArrayBuffer], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url;
-    a.download = downloadName ?? file?.name ?? "document.pdf";
+    a.download = downloadName ?? displayName ?? file?.name ?? "document.pdf";
     a.click(); URL.revokeObjectURL(url);
   };
 
@@ -1997,8 +1997,7 @@ export default function PdfEditor({ initialTool, initialFile, fullscreen, initia
     const pdfOut = await buildAnnotatedPdf();
     if (pdfOut) {
       const base64 = uint8ToBase64(pdfOut);
-      const docName = file?.name ?? "document.pdf";
-      setPdfDataForPaywall({ base64, name: docName, size: pdfOut.byteLength });
+      setPdfDataForPaywall({ base64, name: displayName ?? file?.name ?? "document.pdf", size: pdfOut.byteLength });
     }
 
     if (!isAuthenticated) {
@@ -2023,7 +2022,7 @@ export default function PdfEditor({ initialTool, initialFile, fullscreen, initia
       console.error("[downloadPdf] buildAnnotatedPdf failed:", err);
     }
 
-    const docName = file?.name ?? "document.pdf";
+    const docName = displayName ?? file?.name ?? "document.pdf";
 
     // Step 2: If NOT authenticated → show paywall modal (auth-choice step)
     // Even if PDF build failed, we can still open paywall (PDF will be rebuilt later via buildPdfForUpload)
@@ -3898,7 +3897,7 @@ export default function PdfEditor({ initialTool, initialFile, fullscreen, initia
             if (!out) return null;
             return {
               base64: uint8ToBase64(out),
-              name: file?.name ?? "document.pdf",
+              name: displayName ?? file?.name ?? "document.pdf",
               size: out.byteLength,
             };
           } catch {
