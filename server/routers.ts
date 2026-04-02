@@ -220,6 +220,49 @@ export const appRouter = router({
       };
     }),
 
+    // Create a Paddle transaction with €0.50 trial fee + €49.90/month recurring (7-day trial)
+    createTrialTransaction: protectedProcedure.mutation(async ({ ctx }) => {
+      const paddle = getPaddle();
+      const priceId = process.env.VITE_PADDLE_PRICE_ID || "";
+
+      // Get product ID from the existing price
+      const existingPrice = await paddle.prices.get(priceId);
+      const productId = existingPrice.productId;
+
+      const transaction = await paddle.transactions.create({
+        items: [
+          {
+            quantity: 1,
+            price: {
+              productId,
+              name: "CloudPDF Premium",
+              description: "Suscripción mensual — 7 días de prueba gratis",
+              billingCycle: { interval: "month", frequency: 1 },
+              trialPeriod: { interval: "day", frequency: 7 },
+              unitPrice: { amount: "4990", currencyCode: "EUR" },
+            },
+          },
+          {
+            quantity: 1,
+            price: {
+              productId,
+              name: "Activación trial",
+              description: "Cargo único de activación",
+              unitPrice: { amount: "50", currencyCode: "EUR" },
+            },
+          },
+        ],
+        customData: {
+          user_id: ctx.user.id.toString(),
+          user_email: ctx.user.email || "",
+          user_name: ctx.user.name || "",
+        },
+      });
+
+      console.log(`[Paddle] Trial transaction ${transaction.id} created for user ${ctx.user.id}`);
+      return { transactionId: transaction.id };
+    }),
+
     status: publicProcedure.query(async ({ ctx }) => {
       // Public procedure: returns isPremium:false for unauthenticated users
       // This prevents triggering the global auth redirect when loading the editor

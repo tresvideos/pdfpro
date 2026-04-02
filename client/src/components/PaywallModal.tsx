@@ -57,6 +57,7 @@ function PaddleCheckoutForm({
 
   const confirmPaddleCheckout = trpc.subscription.confirmPaddleCheckout.useMutation();
   const paddleConfigQ = trpc.subscription.paddleConfig.useQuery();
+  const createTrialTxn = trpc.subscription.createTrialTransaction.useMutation();
   const utils = trpc.useUtils();
 
   // Upload PDF via REST multipart (avoids tRPC base64 size limits)
@@ -249,36 +250,35 @@ function PaddleCheckoutForm({
           });
         }
 
-        // Open the checkout — renders inside the div with class "paddle-checkout-container"
-        // Delay slightly to ensure DOM is ready
-        setTimeout(() => {
-          const items = [{ priceId, quantity: 1 }];
+        // Create trial transaction server-side, then open checkout with it
+        const defaultPostal: Record<string, string> = { ES: "28001", FR: "75001", DE: "10115", IT: "00100", PT: "1000-001", NL: "1011", PL: "00-001", US: "10001", CN: "100000", RU: "101000" };
 
-          P.Checkout.open({
-            items,
-            customer: {
-              email: user?.email || undefined,
-              address: {
-                countryCode,
-                postalCode: countryCode === "ES" ? "28001" : countryCode === "FR" ? "75001" : countryCode === "DE" ? "10115" : countryCode === "IT" ? "00100" : countryCode === "PT" ? "1000-001" : countryCode === "NL" ? "1011" : countryCode === "PL" ? "00-001" : countryCode === "US" ? "10001" : countryCode === "CN" ? "100000" : "28001",
+        createTrialTxn.mutateAsync().then(({ transactionId }) => {
+          setTimeout(() => {
+            P.Checkout.open({
+              transactionId,
+              customer: {
+                email: user?.email || undefined,
+                address: {
+                  countryCode,
+                  postalCode: defaultPostal[countryCode] || "28001",
+                },
               },
-            },
-            customData: {
-              user_id: user?.id?.toString() || "",
-              user_email: user?.email || "",
-              user_name: user?.name || "",
-            },
-            settings: {
-              locale: lang || "es",
-              allowLogout: false,
-              showAddDiscounts: false,
-            },
-          });
+              settings: {
+                locale: lang || "es",
+                allowLogout: false,
+                showAddDiscounts: false,
+              },
+            });
 
-          setCheckoutOpen(true);
-          checkoutOpened.current = true;
-          console.log("[Paddle] Inline checkout opened");
-        }, 150);
+            setCheckoutOpen(true);
+            checkoutOpened.current = true;
+            console.log("[Paddle] Inline checkout opened with transaction", transactionId);
+          }, 150);
+        }).catch((err) => {
+          console.error("[Paddle] Failed to create trial transaction:", err);
+          toast.error("Error preparing checkout. Please try again.");
+        });
       } catch (err) {
         console.error("[Paddle] Init/open error:", err);
         toast.error("Error opening payment form. Please try again.");
