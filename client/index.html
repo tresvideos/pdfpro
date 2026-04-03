@@ -115,48 +115,6 @@
       ]
     }
     </script>
-    <!-- Google Consent Mode v2 — MUST run before gtag config -->
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-
-      // Consent denied by default — GDPR compliant
-      gtag('consent', 'default', {
-        'ad_storage': 'denied',
-        'ad_user_data': 'denied',
-        'ad_personalization': 'denied',
-        'analytics_storage': 'denied'
-      });
-
-      // Enable URL passthrough for better cross-domain measurement
-      gtag('set', 'url_passthrough', true);
-
-      // If user accepted cookies, upgrade consent
-      (function() {
-        try {
-          var consent = localStorage.getItem('cloudpdf_cookie_consent');
-          if (consent === 'all') {
-            gtag('consent', 'update', {
-              'ad_storage': 'granted',
-              'ad_user_data': 'granted',
-              'ad_personalization': 'granted',
-              'analytics_storage': 'granted'
-            });
-          }
-        } catch(e) {}
-      })();
-    </script>
-
-    <!-- Google tag (gtag.js) — Analytics G-XBHZ3TMG7K + Ads AW-18038662610 -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-18038662610"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'AW-18038662610');
-      gtag('config', 'G-XBHZ3TMG7K');
-    </script>
-
     <!-- Paddle.js v2 -->
     <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
 
