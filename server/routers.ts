@@ -254,6 +254,7 @@ export const appRouter = router({
           customer_email: ctx.user.email ?? undefined,
           line_items: [
             { price: input.proPriceId, quantity: 1 },
+            { price: input.trialPriceId, quantity: 1 },
           ],
           subscription_data: {
             trial_period_days: 7,
