@@ -107,13 +107,14 @@ function CheckoutForm({
     let cancelled = false;
     (async () => {
       try {
-        const priceId = import.meta.env.VITE_STRIPE_TRIAL_PRICE_ID ?? "";
-        if (!priceId) {
+        const trialPriceId = import.meta.env.VITE_STRIPE_TRIAL_PRICE_ID ?? "";
+        const proPriceId = import.meta.env.VITE_STRIPE_PRO_PRICE_ID ?? "";
+        if (!trialPriceId || !proPriceId) {
           setError("Payment not configured");
           setLoading(false);
           return;
         }
-        const result = await createSubscription.mutateAsync({ priceId });
+        const result = await createSubscription.mutateAsync({ trialPriceId, proPriceId });
         if (!cancelled && result.clientSecret) {
           setClientSecret(result.clientSecret);
         }

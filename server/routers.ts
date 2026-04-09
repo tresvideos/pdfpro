@@ -243,7 +243,7 @@ export const appRouter = router({
       }),
 
     createSubscription: protectedProcedure
-      .input(z.object({ priceId: z.string() }))
+      .input(z.object({ trialPriceId: z.string(), proPriceId: z.string() }))
       .mutation(async ({ ctx, input }) => {
         const stripe = new Stripe(ENV.stripeSecretKey);
         // Find or create Stripe customer
@@ -256,12 +256,17 @@ export const appRouter = router({
           });
           customerId = customer.id;
         }
-        // Create subscription with incomplete payment so we get a clientSecret
+        // Create subscription: 0.50€ one-time trial charge + 7-day free trial + 19.99€/month recurring
         const subscription = await stripe.subscriptions.create({
           customer: customerId,
-          items: [{ price: input.priceId }],
+          items: [{ price: input.proPriceId }],
+          trial_period_days: 7,
           payment_behavior: "default_incomplete",
-          payment_settings: { save_default_payment_method: "on_subscription" },
+          payment_settings: {
+            payment_method_types: ["card"],
+            save_default_payment_method: "on_subscription",
+          },
+          add_invoice_items: [{ price: input.trialPriceId }],
           expand: ["latest_invoice.payment_intent"],
           metadata: { userId: String(ctx.user.id) },
         });
