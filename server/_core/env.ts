@@ -1,4 +1,5 @@
 export const ENV = {
+  appUrl: process.env.APP_URL ?? "https://editorpdf.net",
   appId: process.env.VITE_APP_ID ?? "",
   cookieSecret: process.env.JWT_SECRET ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
