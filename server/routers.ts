@@ -12,6 +12,7 @@ import {
   userHasActiveSubscription,
   cancelSubscriptionDb,
   upsertSubscription,
+  markDocumentsPaid,
   getAllUsers,
   getUserById,
   getUserByEmail,
@@ -242,29 +243,76 @@ export const appRouter = router({
         return { sessionId: session.id, url: session.url };
       }),
 
-    createSubscription: protectedProcedure
-      .input(z.object({ trialPriceId: z.string(), proPriceId: z.string(), successUrl: z.string(), cancelUrl: z.string() }))
-      .mutation(async ({ ctx, input }) => {
-        const stripe = new Stripe(ENV.stripeSecretKey);
-        // Use Stripe Checkout Session — reliable, handles 3DS, SCA, etc.
-        // Line item 1: 19.99€/mes subscription with 7-day trial
-        // Line item 2: 0.50€ one-time trial fee
-        const session = await stripe.checkout.sessions.create({
-          mode: "subscription",
-          customer_email: ctx.user.email ?? undefined,
-          line_items: [
-            { price: input.proPriceId, quantity: 1 },
-            { price: input.trialPriceId, quantity: 1 },
-          ],
-          subscription_data: {
-            trial_period_days: 7,
-            metadata: { userId: String(ctx.user.id) },
-          },
-          success_url: input.successUrl,
-          cancel_url: input.cancelUrl,
+    // Step 1: Create a SetupIntent to collect card details inside the modal
+    createSetupIntent: protectedProcedure.mutation(async ({ ctx }) => {
+      const stripe = new Stripe(ENV.stripeSecretKey);
+      // Find or create Stripe customer
+      const existingSub = await getActiveSubscription(ctx.user.id);
+      let customerId = existingSub?.stripeCustomerId;
+      if (!customerId) {
+        const customer = await stripe.customers.create({
+          email: ctx.user.email ?? undefined,
           metadata: { userId: String(ctx.user.id) },
         });
-        return { url: session.url! };
+        customerId = customer.id;
+      }
+      const setupIntent = await stripe.setupIntents.create({
+        customer: customerId,
+        payment_method_types: ["card"],
+        metadata: { userId: String(ctx.user.id) },
+      });
+      return { clientSecret: setupIntent.client_secret!, customerId };
+    }),
+
+    // Step 2: After card is saved, create the subscription and charge 0.50€
+    activateSubscription: protectedProcedure
+      .input(z.object({ customerId: z.string(), trialPriceId: z.string(), proPriceId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const stripe = new Stripe(ENV.stripeSecretKey);
+        // Get the customer's default payment method (just saved via SetupIntent)
+        const paymentMethods = await stripe.paymentMethods.list({
+          customer: input.customerId,
+          type: "card",
+          limit: 1,
+        });
+        const pm = paymentMethods.data[0];
+        if (!pm) throw new Error("No payment method found");
+        // Set as default payment method
+        await stripe.customers.update(input.customerId, {
+          invoice_settings: { default_payment_method: pm.id },
+        });
+        // Charge 0.50€ one-time trial fee immediately
+        await stripe.paymentIntents.create({
+          customer: input.customerId,
+          amount: 50, // 0.50€ in cents
+          currency: "eur",
+          payment_method: pm.id,
+          off_session: true,
+          confirm: true,
+          description: "EditorPDF - Trial fee",
+          metadata: { userId: String(ctx.user.id) },
+        });
+        // Create subscription: 7-day trial then 19.99€/month
+        const subscription = await stripe.subscriptions.create({
+          customer: input.customerId,
+          items: [{ price: input.proPriceId }],
+          trial_period_days: 7,
+          default_payment_method: pm.id,
+          metadata: { userId: String(ctx.user.id) },
+        });
+        const periodEnd = subscription.trial_end
+          ? new Date(subscription.trial_end * 1000)
+          : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        await upsertSubscription({
+          userId: ctx.user.id,
+          stripeCustomerId: input.customerId,
+          stripeSubscriptionId: subscription.id,
+          plan: "monthly",
+          status: "active",
+          currentPeriodEnd: periodEnd,
+        });
+        await markDocumentsPaid(ctx.user.id);
+        return { success: true, subscriptionId: subscription.id };
       }),
 
     cancel: protectedProcedure.mutation(async ({ ctx }) => {
