@@ -73,7 +73,7 @@ function StripeCardForm({ customerId, onSuccess }: { customerId: string; onSucce
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <PaymentElement />
+      <PaymentElement options={{ fields: { billingDetails: { address: { country: "never", postalCode: "never" } } } }} />
       <button
         type="submit"
         disabled={!stripe || paying}
