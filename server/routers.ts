@@ -256,11 +256,16 @@ export const appRouter = router({
           });
           customerId = customer.id;
         }
-        // Create subscription: 0.50€ one-time trial charge + 7-day free trial + 19.99€/month recurring
+        // Strategy: charge 0.50€ now, first 19.99€ charge in 7 days
+        // Use billing_cycle_anchor set to 7 days from now so the recurring
+        // price is not charged immediately. The trial price (0.50€ one-time)
+        // is added via add_invoice_items and charged on the first invoice.
+        const sevenDaysFromNow = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
         const subscription = await stripe.subscriptions.create({
           customer: customerId,
           items: [{ price: input.proPriceId }],
-          trial_period_days: 7,
+          billing_cycle_anchor: sevenDaysFromNow,
+          proration_behavior: "none",
           payment_behavior: "default_incomplete",
           payment_settings: {
             payment_method_types: ["card"],
@@ -270,8 +275,10 @@ export const appRouter = router({
           expand: ["latest_invoice.payment_intent"],
           metadata: { userId: String(ctx.user.id) },
         });
-        const invoice = subscription.latest_invoice as unknown as { payment_intent: Stripe.PaymentIntent };
-        const paymentIntent = invoice.payment_intent;
+        const invoice = subscription.latest_invoice as unknown as { payment_intent: { client_secret: string } | null };
+        if (!invoice.payment_intent?.client_secret) {
+          throw new Error("Stripe did not return a payment intent for this subscription");
+        }
         // Save subscription to DB
         await upsertSubscription({
           userId: ctx.user.id,
@@ -279,8 +286,9 @@ export const appRouter = router({
           stripeSubscriptionId: subscription.id,
           plan: "monthly",
           status: "incomplete",
+          currentPeriodEnd: new Date(sevenDaysFromNow * 1000),
         });
-        return { clientSecret: paymentIntent.client_secret!, subscriptionId: subscription.id };
+        return { clientSecret: invoice.payment_intent.client_secret, subscriptionId: subscription.id };
       }),
 
     cancel: protectedProcedure.mutation(async ({ ctx }) => {
