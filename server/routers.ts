@@ -242,6 +242,42 @@ export const appRouter = router({
         return { sessionId: session.id, url: session.url };
       }),
 
+    createSubscription: protectedProcedure
+      .input(z.object({ priceId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const stripe = new Stripe(ENV.stripeSecretKey);
+        // Find or create Stripe customer
+        const existingSub = await getActiveSubscription(ctx.user.id);
+        let customerId = existingSub?.stripeCustomerId;
+        if (!customerId) {
+          const customer = await stripe.customers.create({
+            email: ctx.user.email ?? undefined,
+            metadata: { userId: String(ctx.user.id) },
+          });
+          customerId = customer.id;
+        }
+        // Create subscription with incomplete payment so we get a clientSecret
+        const subscription = await stripe.subscriptions.create({
+          customer: customerId,
+          items: [{ price: input.priceId }],
+          payment_behavior: "default_incomplete",
+          payment_settings: { save_default_payment_method: "on_subscription" },
+          expand: ["latest_invoice.payment_intent"],
+          metadata: { userId: String(ctx.user.id) },
+        });
+        const invoice = subscription.latest_invoice as unknown as { payment_intent: Stripe.PaymentIntent };
+        const paymentIntent = invoice.payment_intent;
+        // Save subscription to DB
+        await upsertSubscription({
+          userId: ctx.user.id,
+          stripeCustomerId: customerId,
+          stripeSubscriptionId: subscription.id,
+          plan: "monthly",
+          status: "incomplete",
+        });
+        return { clientSecret: paymentIntent.client_secret!, subscriptionId: subscription.id };
+      }),
+
     cancel: protectedProcedure.mutation(async ({ ctx }) => {
       const sub = await getActiveSubscription(ctx.user.id);
       if (sub?.stripeSubscriptionId) {

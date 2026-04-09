@@ -1,10 +1,11 @@
 /*
  * PaywallModal — Payment wall for premium features
  * - Handles auth (login/register)
- * - Stripe Checkout integration
+ * - Embedded Stripe PaymentElement after auth
  */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { logoParts, colors } from "@/lib/brand";
 import { X, Check, Loader2, Mail, CreditCard, ArrowRight, Eye, EyeOff, Lock, Shield } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -33,43 +34,98 @@ interface PaywallModalProps {
 
 type Step = "auth-choice" | "email-form" | "plans";
 
-// ── Checkout form (Stripe Checkout) ──────────────────────────────────────────
+// ── Inner payment form (rendered inside <Elements>) ─────────────────────────
+function StripePaymentForm({ onSuccess }: { onSuccess: () => void }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [paying, setPaying] = useState(false);
+  const { t } = useLanguage();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+    setPaying(true);
+    try {
+      const langMatch = window.location.pathname.match(/^\/([a-z]{2})(\/|$)/);
+      const lang = langMatch ? langMatch[1] : "es";
+      const { error } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          return_url: `${window.location.origin}/${lang}/payment/success`,
+        },
+      });
+      if (error) {
+        toast.error(error.message ?? "Payment failed");
+      }
+    } catch (err) {
+      console.error("[Stripe] confirmPayment error:", err);
+      toast.error("Error processing payment");
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement />
+      <button
+        type="submit"
+        disabled={!stripe || paying}
+        className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-[#1a3c6e] text-white font-bold text-sm hover:bg-[#15305a] transition-colors disabled:opacity-60"
+      >
+        {paying ? (
+          <><Loader2 className="w-4 h-4 animate-spin" /> {t.paywall_processing ?? "Processing..."}</>
+        ) : (
+          <><CreditCard className="w-4 h-4" /> {t.pricing_cta_monthly ?? "Pay now"}</>
+        )}
+      </button>
+      <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
+        <Shield className="w-3.5 h-3.5" />
+        <span>{t.paywall_secure ?? "Secure payment with Stripe"}</span>
+      </div>
+    </form>
+  );
+}
+
+// ── Checkout form with embedded Stripe PaymentElement ────────────────────────
 function CheckoutForm({
   onSuccess,
   pdfData,
   thumbnailUrl,
-  buildPdfForUpload,
 }: {
   onSuccess: (transactionId?: string) => void;
   pdfData?: PdfPayload;
   thumbnailUrl?: string;
-  buildPdfForUpload?: () => Promise<{ base64: string; name: string; size: number } | null>;
 }) {
   const { t } = useLanguage();
-  const [loading, setLoading] = useState(false);
-  const createCheckout = trpc.subscription.createCheckoutSession.useMutation();
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const createSubscription = trpc.subscription.createSubscription.useMutation();
 
-  const handleCheckout = async () => {
-    setLoading(true);
-    try {
-      const langMatch = window.location.pathname.match(/^\/([a-z]{2})(\/|$)/);
-      const lang = langMatch ? langMatch[1] : "es";
-      const origin = window.location.origin;
-      const result = await createCheckout.mutateAsync({
-        priceId: import.meta.env.VITE_STRIPE_TRIAL_PRICE_ID ?? "",
-        successUrl: `${origin}/${lang}/payment/success`,
-        cancelUrl: `${origin}/${lang}`,
-      });
-      if (result.url) {
-        window.location.href = result.url;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const priceId = import.meta.env.VITE_STRIPE_TRIAL_PRICE_ID ?? "";
+        if (!priceId) {
+          setError("Payment not configured");
+          setLoading(false);
+          return;
+        }
+        const result = await createSubscription.mutateAsync({ priceId });
+        if (!cancelled && result.clientSecret) {
+          setClientSecret(result.clientSecret);
+        }
+      } catch (err) {
+        console.error("[Stripe] createSubscription error:", err);
+        if (!cancelled) setError("Error loading payment form");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } catch (err) {
-      console.error("[Stripe] Checkout error:", err);
-      toast.error("Error al iniciar el pago. Inténtalo de nuevo.");
-    } finally {
-      setLoading(false);
-    }
-  };
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <div className="flex flex-col min-h-0">
@@ -81,6 +137,7 @@ function CheckoutForm({
       </div>
 
       <div className="flex flex-col md:flex-row min-h-0">
+        {/* Left: document preview */}
         <div className="hidden md:flex flex-col items-center bg-slate-50 border-r border-slate-100 p-5" style={{ minWidth: 220, maxWidth: 260 }}>
           <div className="flex items-center gap-1 mb-5">
             <svg width="28" height="20" viewBox="0 0 32 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
@@ -91,7 +148,6 @@ function CheckoutForm({
             <span className="font-medium text-lg text-slate-500">{logoParts[0]}</span>
             <span className="font-extrabold text-lg" style={{ color: colors.light }}>{logoParts[1]}</span>
           </div>
-
           <div
             className="w-full rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden flex items-center justify-center"
             style={{ aspectRatio: "0.707", maxHeight: 200 }}
@@ -120,50 +176,39 @@ function CheckoutForm({
           </p>
         </div>
 
-        <div className="flex-1 flex flex-col items-center justify-center p-8 min-h-[300px]">
-          <div className="text-center mb-6">
-            <h3 className="text-xl font-bold text-slate-800 mb-2">
+        {/* Right: pricing + payment form */}
+        <div className="flex-1 flex flex-col p-6 min-h-[300px]">
+          <div className="text-center mb-5">
+            <h3 className="text-xl font-bold text-slate-800 mb-1">
               {t.pricing_trial_name ?? "7-day Trial"}
             </h3>
             <div className="flex items-baseline justify-center gap-1">
               <span className="text-3xl font-extrabold text-slate-900">€0.50</span>
               <span className="text-sm text-slate-500">/ 7 {t.pricing_trial_period ?? "días"}</span>
             </div>
-            <p className="text-sm text-slate-500 mt-2">
+            <p className="text-sm text-slate-500 mt-1">
               {"Después"} €19.99/{t.pricing_monthly_period ?? "mes"}
             </p>
           </div>
 
-          <ul className="space-y-2 mb-6 text-sm text-slate-600 w-full max-w-xs">
-            {[
-              t.pricing_feature_convert ?? "Unlimited conversions",
-              t.pricing_feature_edit ?? "Unlimited editing",
-              t.pricing_feature_storage ?? "Store PDFs",
-              t.pricing_feature_sign ?? "Sign documents",
-            ].map((feat, i) => (
-              <li key={i} className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                {feat}
-              </li>
-            ))}
-          </ul>
+          {loading && (
+            <div className="flex-1 flex flex-col items-center justify-center">
+              <Loader2 className="w-8 h-8 animate-spin text-slate-300 mb-3" />
+              <p className="text-sm text-slate-500">{t.paywall_processing ?? "Loading payment form..."}</p>
+            </div>
+          )}
 
-          <button
-            onClick={handleCheckout}
-            disabled={loading}
-            className="w-full max-w-xs flex items-center justify-center gap-2 py-3.5 rounded-xl bg-[#1a3c6e] text-white font-bold text-sm hover:bg-[#15305a] transition-colors disabled:opacity-60"
-          >
-            {loading ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> {t.paywall_processing ?? "Processing..."}</>
-            ) : (
-              <><CreditCard className="w-4 h-4" /> {t.pricing_cta_monthly ?? "Subscribe now"}</>
-            )}
-          </button>
+          {error && (
+            <div className="flex-1 flex flex-col items-center justify-center">
+              <p className="text-sm text-red-500">{error}</p>
+            </div>
+          )}
 
-          <div className="flex items-center gap-2 mt-4 text-xs text-slate-400">
-            <Shield className="w-3.5 h-3.5" />
-            <span>{t.paywall_secure ?? "Secure payment with Stripe"}</span>
-          </div>
+          {clientSecret && (
+            <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" } }}>
+              <StripePaymentForm onSuccess={() => onSuccess()} />
+            </Elements>
+          )}
         </div>
       </div>
     </div>
@@ -210,12 +255,11 @@ export default function PaywallModal({
       try { await saveEditedPdfToSession(pdfData.base64, pdfData.name, pdfData.size); } catch {}
     }
     setPendingPaywall(true);
-    // Also set the pending action flag so the auto-resume useEffect has a reliable signal
     sessionStorage.setItem("cloudpdf_pending_action", "download");
-    // Use direct Google OAuth (shows "CloudPDF" on Google consent screen)
     const returnPath = window.location.pathname + window.location.search;
     window.location.href = `/api/auth/google?origin=${encodeURIComponent(window.location.origin)}&returnPath=${encodeURIComponent(returnPath)}`;
   };
+
   const handleEmailSubmit = async () => {
     if (!emailInput.trim() || !emailInput.includes("@")) {
       toast.error(t.paywall_enter_email);
@@ -241,7 +285,7 @@ export default function PaywallModal({
       }
       // Refresh auth state — cookie is set by the server
       await refresh();
-      // Auto-save the document to the user's account (so it appears in "My Documents" even if they cancel payment)
+      // Auto-save the document to the user's account
       const docToSave = (effectivePdfData && "base64" in effectivePdfData ? effectivePdfData : null) ?? (buildPdfForUpload ? await buildPdfForUpload() : null);
       if (docToSave && "base64" in docToSave) {
         try {
@@ -257,7 +301,7 @@ export default function PaywallModal({
           console.warn("[PaywallModal] Auto-save after registration failed:", e);
         }
       }
-      // Auth state is now updated, step will auto-switch to "plans"
+      // Auth state updated → currentStep switches to "plans" → CheckoutForm auto-inits Stripe
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Error";
       toast.error(message);
@@ -418,13 +462,12 @@ export default function PaywallModal({
           </div>
         )}
 
-        {/* ── Plans: payment step ── */}
+        {/* ── Payment: embedded Stripe form (auto-loads after auth) ── */}
         {currentStep === "plans" && (
           <CheckoutForm
             onSuccess={handlePaymentSuccess}
             pdfData={effectivePdfData}
             thumbnailUrl={thumbnailUrl}
-            buildPdfForUpload={buildPdfForUpload}
           />
         )}
       </div>
