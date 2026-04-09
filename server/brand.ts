@@ -1,5 +1,4 @@
 const BRANDS: Record<string, { name: string; domain: string }> = {
-  FastDoc: { name: "FastDoc", domain: "fastdoc.app" },
   CloudPDF: { name: "CloudPDF", domain: "cloud-pdf.net" },
 };
 

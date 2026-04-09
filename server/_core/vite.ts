@@ -12,65 +12,13 @@ const FAVICON_CLOUDPDF = `<link rel="icon" type="image/x-icon" href="/favicon.ic
     <link rel="icon" type="image/png" sizes="256x256" href="/favicon-256.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />`;
 
-const FAVICON_FASTDOC = `<link rel="icon" type="image/svg+xml" href="/favicon-fastdoc.svg" />`;
+const faviconLinks = FAVICON_CLOUDPDF;
 
-const faviconLinks = brandName === "FastDoc" ? FAVICON_FASTDOC : FAVICON_CLOUDPDF;
+const trackingScripts = "";
 
-const TRACKING_CLOUDPDF = `<!-- Google Consent Mode v2 — MUST run before gtag config -->
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('consent', 'default', {
-        'ad_storage': 'denied',
-        'ad_user_data': 'denied',
-        'ad_personalization': 'denied',
-        'analytics_storage': 'denied'
-      });
-      gtag('set', 'url_passthrough', true);
-      (function() {
-        try {
-          var consent = localStorage.getItem('cloudpdf_cookie_consent');
-          if (consent === 'all') {
-            gtag('consent', 'update', {
-              'ad_storage': 'granted',
-              'ad_user_data': 'granted',
-              'ad_personalization': 'granted',
-              'analytics_storage': 'granted'
-            });
-          }
-        } catch(e) {}
-      })();
-    </script>
-    <!-- Google tag (gtag.js) — Analytics G-XBHZ3TMG7K + Ads AW-18038662610 -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-18038662610"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'AW-18038662610');
-      gtag('config', 'G-XBHZ3TMG7K');
-    </script>
-    <!-- Microsoft Clarity -->
-    <script type="text/javascript">
-      (function(c,l,a,r,i,t,y){
-        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
-        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
-        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
-      })(window, document, "clarity", "script", "w6bf2915sz");
-    </script>`;
-
-const trackingScripts = brandName === "FastDoc" ? "" : TRACKING_CLOUDPDF;
-
-const isFastDoc = brandName === "FastDoc";
-const pageTitle = isFastDoc
-  ? `Online PDF Editor – Edit, Sign & Convert PDF | ${brandName}`
-  : `Free Online PDF Editor – Edit, Sign & Convert PDF | ${brandName}`;
-const pageDescription = isFastDoc
-  ? "Edit PDF files online. Add text, signatures, images and annotations. Convert PDF to Word, JPG, Excel. Works on any device."
-  : "Edit PDF files online for free. Add text, signatures, images and annotations. Convert PDF to Word, JPG, Excel. No installation needed. Works on any device.";
-const pageKeywords = isFastDoc
-  ? "edit PDF online, PDF editor, PDF to Word, sign PDF online, convert PDF, merge PDF, compress PDF"
-  : "edit PDF online, free PDF editor, PDF to Word, sign PDF online, convert PDF, merge PDF, compress PDF";
+const pageTitle = `Free Online PDF Editor – Edit, Sign & Convert PDF | ${brandName}`;
+const pageDescription = "Edit PDF files online for free. Add text, signatures, images and annotations. Convert PDF to Word, JPG, Excel. No installation needed. Works on any device.";
+const pageKeywords = "edit PDF online, free PDF editor, PDF to Word, sign PDF online, convert PDF, merge PDF, compress PDF";
 
 function replaceBrandPlaceholders(html: string): string {
   let result = html

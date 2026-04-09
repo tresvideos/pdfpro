@@ -1,9 +1,10 @@
 /*
- * PaywallModal — Paddle Inline Checkout embebido
- * - Izquierda: preview del PDF (minimal)
- * - Derecha: formulario de Paddle renderizado inline dentro del modal
+ * PaywallModal — Payment wall for premium features
+ * - Handles auth (login/register)
+ * - Stripe Checkout integration
  */
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
+import { loadStripe } from "@stripe/stripe-js";
 import { logoParts, colors } from "@/lib/brand";
 import { X, Check, Loader2, Mail, CreditCard, ArrowRight, Eye, EyeOff, Lock, Shield } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -11,6 +12,8 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { usePdfFile } from "@/contexts/PdfFileContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY ?? "");
 
 // PDF data can be base64 (from editor) or tempKey (from S3 temp upload after login redirect)
 type PdfPayload =
@@ -30,8 +33,8 @@ interface PaywallModalProps {
 
 type Step = "auth-choice" | "email-form" | "plans";
 
-// ── Paddle Inline Checkout form ────────────────────────────────────────
-function PaddleCheckoutForm({
+// ── Checkout form (Stripe Checkout) ──────────────────────────────────────────
+function CheckoutForm({
   onSuccess,
   pdfData,
   thumbnailUrl,
@@ -42,320 +45,43 @@ function PaddleCheckoutForm({
   thumbnailUrl?: string;
   buildPdfForUpload?: () => Promise<{ base64: string; name: string; size: number } | null>;
 }) {
-  const { user } = useAuth();
   const { t } = useLanguage();
-  const [isLoading, setIsLoading] = useState(false);
-  const [progressStep, setProgressStep] = useState<"idle" | "checkout" | "saving" | "done">("idle");
-  const [paddleReady, setPaddleReady] = useState(false);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const paddleInitialized = useRef(false);
-  const checkoutOpened = useRef(false);
-  const mountedRef = useRef(true);
+  const [loading, setLoading] = useState(false);
+  const createCheckout = trpc.subscription.createCheckoutSession.useMutation();
 
-  const confirmPaddleCheckout = trpc.subscription.confirmPaddleCheckout.useMutation();
-  const paddleConfigQ = trpc.subscription.paddleConfig.useQuery();
-  const utils = trpc.useUtils();
-  const [geoData, setGeoData] = useState<{ country: string; postalCode: string } | null>(null);
-
-  // Default postal codes per country — used when geo lookup doesn't return one
-  const defaultPostals: Record<string, string> = {
-    US: "10001", GB: "SW1A 1AA", DE: "10115", FR: "75001", ES: "28001", IT: "00100",
-    PT: "1000-001", NL: "1011", PL: "00-001", RU: "101000", CN: "100000", JP: "100-0001",
-    BR: "01000-000", MX: "06600", AR: "C1000", CL: "8320000", CO: "110111", PE: "15001",
-    IN: "110001", AU: "2000", CA: "M5H 2N2", KR: "04524", SE: "11120", NO: "0150",
-    DK: "1000", FI: "00100", AT: "1010", CH: "8001", BE: "1000", IE: "D01",
-  };
-
-  // Fetch geo data on mount — awaited before opening checkout
-  useEffect(() => {
-    fetch("/api/geo").then(r => r.json()).then(data => {
-      const country = data?.country || "";
-      const postalCode = data?.postalCode || defaultPostals[country] || "";
-      if (country) {
-        setGeoData({ country, postalCode });
-      }
-    }).catch(() => {});
-  }, []);
-
-  // Upload PDF via REST multipart (avoids tRPC base64 size limits)
-  const uploadPdfViaRest = async (data: { base64: string; name: string; size: number }): Promise<void> => {
-    const binary = atob(data.base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const blob = new Blob([bytes], { type: "application/pdf" });
-    const formData = new FormData();
-    formData.append("file", blob, data.name);
-    formData.append("name", data.name);
-    const resp = await fetch("/api/documents/upload", {
-      method: "POST",
-      credentials: "include",
-      body: formData,
-    });
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => "");
-      throw new Error(`Upload failed: ${resp.status} ${text}`);
-    }
-  };
-
-  // Claim a temp PDF from S3 (uploaded before login redirect)
-  const claimTempPdf = async (tempKey: string, name: string): Promise<void> => {
-    const resp = await fetch("/api/documents/claim-temp", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tempKey, name }),
-    });
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => "");
-      throw new Error(`Claim failed: ${resp.status} ${text}`);
-    }
-  };
-
-  // Handle post-checkout success (upload PDF, confirm subscription)
-  const handleCheckoutComplete = useCallback(async (eventData: any) => {
-    setIsLoading(true);
-    setProgressStep("checkout");
+  const handleCheckout = async () => {
+    setLoading(true);
     try {
-      // Paddle.js v2 checkout.completed passes event.data with the transaction object
-      // The transaction ID can be at: eventData.id, eventData.transaction_id, or nested
-      console.log("[PaywallModal] checkout.completed eventData:", JSON.stringify(eventData, null, 2));
-      const transactionId = eventData?.id || eventData?.transaction_id || eventData?.data?.transaction_id || eventData?.data?.id || "";
-      const subscriptionId = eventData?.subscription_id || eventData?.data?.subscription_id || "";
-      const customerId = eventData?.customer_id || eventData?.data?.customer_id || "";
-      console.log("[PaywallModal] Extracted IDs:", { transactionId, subscriptionId, customerId });
-
-      // 1. Confirm subscription in our DB
-      await confirmPaddleCheckout.mutateAsync({
-        transactionId,
-        subscriptionId,
-        customerId,
+      const langMatch = window.location.pathname.match(/^\/([a-z]{2})(\/|$)/);
+      const lang = langMatch ? langMatch[1] : "es";
+      const origin = window.location.origin;
+      const result = await createCheckout.mutateAsync({
+        priceId: import.meta.env.VITE_STRIPE_PRICE_ID ?? "",
+        successUrl: `${origin}/${lang}/payment/success`,
+        cancelUrl: `${origin}/${lang}`,
       });
-      await utils.subscription.status.invalidate();
-
-      // 2. Upload PDF now that subscription is active
-      setProgressStep("saving");
-
-      // Case A: pdfData has a tempKey (uploaded to S3 before login redirect)
-      if (pdfData && "tempKey" in pdfData) {
-        try {
-          await claimTempPdf(pdfData.tempKey, pdfData.name);
-          await utils.documents.list.invalidate();
-        } catch (claimErr) {
-          console.error("[PaywallModal] claimTempPdf failed:", claimErr);
-        }
-      } else {
-        // Case B: pdfData has base64 (built in-memory, user was already logged in)
-        let resolvedPdfData = pdfData as { base64: string; name: string; size: number } | undefined;
-        if (!resolvedPdfData && buildPdfForUpload) {
-          try {
-            resolvedPdfData = (await buildPdfForUpload()) ?? undefined;
-          } catch (buildErr) {
-            console.error("[PaywallModal] buildPdfForUpload failed:", buildErr);
-          }
-        }
-        if (resolvedPdfData) {
-          try {
-            await uploadPdfViaRest(resolvedPdfData);
-            await utils.documents.list.invalidate();
-          } catch (uploadErr) {
-            console.error("PDF upload failed (attempt 1):", uploadErr);
-            try {
-              await uploadPdfViaRest(resolvedPdfData);
-              await utils.documents.list.invalidate();
-            } catch (uploadErr2) {
-              console.error("PDF upload failed (attempt 2):", uploadErr2);
-            }
-          }
-        }
+      if (result.url) {
+        window.location.href = result.url;
       }
-
-      setProgressStep("done");
-      toast.success("Document saved! Processing...");
-
-      // Google Ads conversion tracking
-      if (typeof window.gtag === "function") {
-        window.gtag("event", "conversion", {
-          send_to: "AW-18038662610",
-          value: 49.90,
-          currency: "EUR",
-          transaction_id: transactionId || subscriptionId,
-        });
-        console.log("[PaywallModal] Google Ads conversion fired", { transactionId, subscriptionId });
-      }
-
-      onSuccess(transactionId || subscriptionId);
-    } catch (err: unknown) {
-      setProgressStep("idle");
-      const message = err instanceof Error ? err.message : "Error processing payment";
-      toast.error(message);
+    } catch (err) {
+      console.error("[Stripe] Checkout error:", err);
+      toast.error("Error al iniciar el pago. Inténtalo de nuevo.");
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  }, [pdfData, buildPdfForUpload, onSuccess, confirmPaddleCheckout, utils]);
-
-  // Wait for geo data before opening checkout (max 2s, then open anyway)
-  const [geoTimeout, setGeoTimeout] = useState(false);
-  useEffect(() => {
-    if (geoData) return; // already have geo
-    const timer = setTimeout(() => setGeoTimeout(true), 2000);
-    return () => clearTimeout(timer);
-  }, [geoData]);
-
-  // Initialize Paddle.js with INLINE mode and open checkout
-  useEffect(() => {
-    if (checkoutOpen || !paddleConfigQ.data?.clientToken || !paddleConfigQ.data?.priceId) return;
-    // Wait for geo data OR timeout before opening
-    if (!geoData && !geoTimeout) return;
-
-    const Paddle = (window as any).Paddle;
-    if (!Paddle) {
-      // Load script first
-      const script = document.createElement("script");
-      script.src = "https://cdn.paddle.com/paddle/v2/paddle.js";
-      script.async = true;
-      script.onload = () => initAndOpen();
-      script.onerror = () => {
-        console.error("[Paddle] Failed to load Paddle.js");
-        toast.error("Error loading payment system. Please refresh.");
-      };
-      document.head.appendChild(script);
-      return;
-    }
-
-    initAndOpen();
-
-    function initAndOpen() {
-      const P = (window as any).Paddle;
-      if (!P) return;
-
-      const clientToken = paddleConfigQ.data!.clientToken;
-      const priceId = paddleConfigQ.data!.priceId;
-
-      try {
-        if (!paddleInitialized.current) {
-          if (paddleConfigQ.data!.sandbox && P.Environment) {
-            P.Environment.set("sandbox");
-          }
-          P.Initialize({
-            token: clientToken,
-            checkout: {
-              settings: {
-                displayMode: "inline",
-                frameTarget: "paddle-checkout-container",
-                frameInitialHeight: "450",
-                frameStyle: "width: 100%; min-width: 312px; background-color: transparent; border: none;",
-              },
-            },
-            eventCallback: (event: any) => {
-              console.log("[Paddle] Event:", event.name, event);
-              if (event.name === "checkout.loaded") {
-                setPaddleReady(true);
-              }
-              if (event.name === "checkout.completed") {
-                handleCheckoutComplete(event.data);
-              }
-              if (event.name === "checkout.closed") {
-                // User closed the checkout
-              }
-              if (event.name === "checkout.error") {
-                console.error("[Paddle] Checkout error:", event);
-                toast.error("Payment error. Please try again.");
-              }
-            },
-          });
-          paddleInitialized.current = true;
-        } else {
-          // Already initialized, update the event callback
-          P.Update({
-            eventCallback: (event: any) => {
-              console.log("[Paddle] Event:", event.name, event);
-              if (event.name === "checkout.loaded") {
-                setPaddleReady(true);
-              }
-              if (event.name === "checkout.completed") {
-                handleCheckoutComplete(event.data);
-              }
-              if (event.name === "checkout.error") {
-                console.error("[Paddle] Checkout error:", event);
-                toast.error("Payment error. Please try again.");
-              }
-            },
-          });
-        }
-
-        // Open the checkout — renders inside the div with class "paddle-checkout-container"
-        // Delay slightly to ensure DOM is ready
-        setTimeout(() => {
-          const items = [{ priceId, quantity: 1 }];
-
-          const customerData: any = {
-            email: user?.email || undefined,
-          };
-          if (geoData?.country) {
-            customerData.address = {
-              countryCode: geoData.country,
-              postalCode: geoData.postalCode || defaultPostals[geoData.country] || "00000",
-            };
-          }
-
-          P.Checkout.open({
-            items,
-            discountId: "dsc_01kn9r3e3et9pdv30atyv82h4x",
-            customer: customerData,
-            customData: {
-              user_id: user?.id?.toString() || "",
-              user_email: user?.email || "",
-              user_name: user?.name || "",
-            },
-            settings: {
-              locale: "en",
-              allowLogout: false,
-              showAddDiscounts: false,
-            },
-          });
-
-          setCheckoutOpen(true);
-          checkoutOpened.current = true;
-          console.log("[Paddle] Inline checkout opened");
-        }, 150);
-      } catch (err) {
-        console.error("[Paddle] Init/open error:", err);
-        toast.error("Error opening payment form. Please try again.");
-      }
-    }
-  }, [checkoutOpen, paddleConfigQ.data, user, handleCheckoutComplete, geoData, geoTimeout]);
-
-  // Close Paddle checkout when component unmounts
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-      if (checkoutOpened.current && (window as any).Paddle) {
-        try {
-          (window as any).Paddle.Checkout.close();
-          console.log("[Paddle] Checkout closed on unmount");
-        } catch (e) {
-          console.warn("[Paddle] Error closing checkout:", e);
-        }
-        checkoutOpened.current = false;
-      }
-    };
-  }, []);
+  };
 
   return (
     <div className="flex flex-col min-h-0">
-      {/* ── Header: "Your document is ready!" ── */}
       <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-100">
         <div className="w-7 h-7 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
           <Check className="w-4 h-4 text-white" />
         </div>
-        <p className="text-base font-semibold text-slate-800">Your document is ready!</p>
+        <p className="text-base font-semibold text-slate-800">{t.paywall_doc_ready ?? "Your document is ready!"}</p>
       </div>
 
-
       <div className="flex flex-col md:flex-row min-h-0">
-        {/* ── Left column: Logo + PDF Preview ── */}
         <div className="hidden md:flex flex-col items-center bg-slate-50 border-r border-slate-100 p-5" style={{ minWidth: 220, maxWidth: 260 }}>
-          {/* CloudPDF Logo */}
           <div className="flex items-center gap-1 mb-5">
             <svg width="28" height="20" viewBox="0 0 32 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
               <path d="M25.5 12.5C25.5 12.5 26 12 26 11c0-2.8-2.2-5-5-5-.5 0-1 .1-1.5.2C18.3 3.7 15.9 2 13 2 9.4 2 6.5 4.9 6.5 8.5c0 .2 0 .4 0 .6C4.5 9.6 3 11.4 3 13.5 3 16 5 18 7.5 18h16c2.2 0 4-1.8 4-4 0-1.5-.8-2.8-2-3.5z" fill={colors.light} />
@@ -366,17 +92,12 @@ function PaddleCheckoutForm({
             <span className="font-extrabold text-lg" style={{ color: colors.light }}>{logoParts[1]}</span>
           </div>
 
-          {/* PDF thumbnail */}
           <div
             className="w-full rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden flex items-center justify-center"
             style={{ aspectRatio: "0.707", maxHeight: 200 }}
           >
             {thumbnailUrl ? (
-              <img
-                src={thumbnailUrl}
-                alt="Document preview"
-                className="w-full h-full object-contain"
-              />
+              <img src={thumbnailUrl} alt="Document preview" className="w-full h-full object-contain" />
             ) : (
               <div className="w-full h-full p-3 flex flex-col gap-2">
                 <div className="flex items-center gap-2 mb-2">
@@ -397,82 +118,49 @@ function PaddleCheckoutForm({
           <p className="text-xs text-slate-400 mt-2 text-center leading-tight truncate w-full">
             {pdfData?.name ?? "documento.pdf"}
           </p>
-
-          {/* Progress steps — visible during payment processing */}
-          {isLoading && (
-            <div className="mt-4 w-full rounded-xl border border-slate-100 bg-white p-3">
-              {([
-                { key: "checkout",     label: "Processing payment..." },
-                { key: "saving",       label: "Saving document..." },
-                { key: "done",         label: "All done!" },
-              ] as const).map((step) => {
-                const stepOrder = ["checkout", "saving", "done"] as const;
-                const currentIdx = stepOrder.indexOf(progressStep as typeof stepOrder[number]);
-                const stepIdx = stepOrder.indexOf(step.key);
-                const isDone    = stepIdx < currentIdx;
-                const isActive  = stepIdx === currentIdx;
-                return (
-                  <div key={step.key} className="flex items-center gap-2 py-1">
-                    <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-                      {isDone ? (
-                        <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center">
-                          <Check className="w-2.5 h-2.5 text-white" />
-                        </div>
-                      ) : isActive ? (
-                        <Loader2 className="w-4 h-4 animate-spin text-[#1a3c6e]" />
-                      ) : (
-                        <div className="w-4 h-4 rounded-full border-2 border-slate-200" />
-                      )}
-                    </div>
-                    <span className={`text-xs font-medium transition-colors ${
-                      isDone    ? "text-green-600" :
-                      isActive  ? "text-[#1a3c6e]" :
-                      "text-slate-300"
-                    }`}>
-                      {step.label}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
 
-        {/* ── Right column: Paddle Inline Checkout ── */}
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          {/* Price banner — visible above checkout */}
-          <div className="mx-4 mt-4 mb-2 rounded-xl overflow-hidden" style={{ background: "linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%)", border: "1px solid #bbf7d0" }}>
-            <div className="flex items-center justify-center gap-3 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "#dcfce7" }}>
-                  <Check className="w-4 h-4" style={{ color: "#16a34a" }} />
-                </div>
-                <span className="text-sm font-medium" style={{ color: "#374151" }}>{t.paywall_offer_label}</span>
-              </div>
-              <span className="text-2xl font-extrabold" style={{ color: "#16a34a" }}>0,90 &euro;</span>
+        <div className="flex-1 flex flex-col items-center justify-center p-8 min-h-[300px]">
+          <div className="text-center mb-6">
+            <h3 className="text-xl font-bold text-slate-800 mb-2">
+              {t.pricing_monthly_name ?? "Monthly Plan"}
+            </h3>
+            <div className="flex items-baseline justify-center gap-1">
+              <span className="text-3xl font-extrabold text-slate-900">{t.pricing_monthly_price ?? "€49.90"}</span>
+              <span className="text-sm text-slate-500">/ {t.pricing_monthly_period ?? "mes"}</span>
             </div>
+            <p className="text-sm text-slate-500 mt-2">{t.pricing_monthly_desc ?? "Full access to all features"}</p>
           </div>
 
-          {/* Loading state while Paddle loads */}
-          {!paddleReady && (
-            <div className="flex items-center justify-center p-8">
-              <div className="flex flex-col items-center gap-3">
-                <Loader2 className="w-8 h-8 animate-spin text-[#1a3c6e]" />
-                <p className="text-sm text-slate-500">Loading payment form...</p>
-              </div>
-            </div>
-          )}
-          {/* Paddle inline checkout renders here */}
-          <div className="relative flex-1">
-            <div
-              className="paddle-checkout-container"
-              style={{
-                minHeight: 450,
-                padding: "0 8px",
-                opacity: paddleReady ? 1 : 0,
-                transition: "opacity 0.3s ease",
-              }}
-            />
+          <ul className="space-y-2 mb-6 text-sm text-slate-600 w-full max-w-xs">
+            {[
+              t.pricing_feature_convert ?? "Unlimited conversions",
+              t.pricing_feature_edit ?? "Unlimited editing",
+              t.pricing_feature_storage ?? "Store PDFs",
+              t.pricing_feature_sign ?? "Sign documents",
+            ].map((feat, i) => (
+              <li key={i} className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                {feat}
+              </li>
+            ))}
+          </ul>
+
+          <button
+            onClick={handleCheckout}
+            disabled={loading}
+            className="w-full max-w-xs flex items-center justify-center gap-2 py-3.5 rounded-xl bg-[#1a3c6e] text-white font-bold text-sm hover:bg-[#15305a] transition-colors disabled:opacity-60"
+          >
+            {loading ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> {t.paywall_processing ?? "Processing..."}</>
+            ) : (
+              <><CreditCard className="w-4 h-4" /> {t.pricing_cta_monthly ?? "Subscribe now"}</>
+            )}
+          </button>
+
+          <div className="flex items-center gap-2 mt-4 text-xs text-slate-400">
+            <Shield className="w-3.5 h-3.5" />
+            <span>{t.paywall_secure ?? "Secure payment with Stripe"}</span>
           </div>
         </div>
       </div>
@@ -728,9 +416,9 @@ export default function PaywallModal({
           </div>
         )}
 
-        {/* ── Plans: payment step (no header, just PDF preview + Paddle) ── */}
+        {/* ── Plans: payment step ── */}
         {currentStep === "plans" && (
-          <PaddleCheckoutForm
+          <CheckoutForm
             onSuccess={handlePaymentSuccess}
             pdfData={effectivePdfData}
             thumbnailUrl={thumbnailUrl}

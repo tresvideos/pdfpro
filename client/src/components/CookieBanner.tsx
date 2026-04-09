@@ -45,39 +45,18 @@ export default function CookieBanner() {
     }
   }, []);
 
-  const updateGoogleConsent = (granted: boolean) => {
-    if (typeof window !== "undefined" && typeof (window as any).gtag === "function") {
-      // Always keep ad_storage and ad_user_data granted for conversion tracking
-      // Only toggle ad_personalization based on user preference
-      (window as any).gtag("consent", "update", {
-        ad_storage: "granted",
-        ad_user_data: "granted",
-        ad_personalization: granted ? "granted" : "denied",
-        analytics_storage: "granted",
-      });
-    }
-  };
-
   const handleAcceptAll = () => {
     setCookieConsent("all");
-    updateGoogleConsent(true);
     setVisible(false);
   };
 
   const handleRejectNonEssential = () => {
     setCookieConsent("essential");
-    updateGoogleConsent(false);
     setVisible(false);
   };
 
   const handleSaveSettings = () => {
-    if (analyticsEnabled) {
-      setCookieConsent("all");
-      updateGoogleConsent(true);
-    } else {
-      setCookieConsent("essential");
-      updateGoogleConsent(false);
-    }
+    setCookieConsent(analyticsEnabled ? "all" : "essential");
     setVisible(false);
   };
 

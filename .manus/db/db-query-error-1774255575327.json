@@ -1,8 +1,0 @@
-{
-  "query": "SELECT id, slug, title, LEFT(content, 100) as content_preview, language, created_at FROM legal_pages ORDER BY slug, language;",
-  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 4AvtuQasrcUbqPZ.root --database HUwJ6fxw58gKVZz5QkmFWk --execute SELECT id, slug, title, LEFT(content, 100) as content_preview, language, created_at FROM legal_pages ORDER BY slug, language;",
-  "returncode": 1,
-  "logs": [
-    "ERROR 1054 (42S22) at line 1: Unknown column 'language' in 'field list'"
-  ]
-}

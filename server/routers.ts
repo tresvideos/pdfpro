@@ -1,4 +1,3 @@
-import { Paddle, Environment } from "@paddle/paddle-node-sdk";
 import { z } from "zod";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -6,11 +5,13 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import bcrypt from "bcryptjs";
+import Stripe from "stripe";
+import { ENV } from "./_core/env";
 import {
   getActiveSubscription,
   userHasActiveSubscription,
-  upsertSubscription,
   cancelSubscriptionDb,
+  upsertSubscription,
   getAllUsers,
   getUserById,
   getUserByEmail,
@@ -53,14 +54,8 @@ import {
   createBlogPost,
   updateBlogPost,
   deleteBlogPost,
-  markDocumentsPaid,
 } from "./db";
 import { storagePut } from "./storage";
-import { sendPaymentConfirmationEmail, sendCancellationEmail } from "./email";
-
-// Paddle SDK instance (server-side) — auto-detect sandbox vs production from API key
-const paddleEnv = (process.env.PADDLE_API_KEY || "").startsWith("pdl_live_") ? Environment.production : Environment.sandbox;
-const getPaddle = () => new Paddle(process.env.PADDLE_API_KEY || "", { environment: paddleEnv });
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") {
@@ -211,20 +206,9 @@ export const appRouter = router({
     }),
   }),
 
-  // ─── Subscriptions (Paddle) ────────────────────────────────────
+  // ─── Subscriptions (Stripe) ────────────────────────────────────
   subscription: router({
-    // Returns Paddle config for the frontend
-    paddleConfig: publicProcedure.query(async () => {
-      return {
-        clientToken: process.env.VITE_PADDLE_CLIENT_TOKEN || "",
-        priceId: process.env.VITE_PADDLE_PRICE_ID || "",
-        sandbox: paddleEnv === Environment.sandbox,
-      };
-    }),
-
     status: publicProcedure.query(async ({ ctx }) => {
-      // Public procedure: returns isPremium:false for unauthenticated users
-      // This prevents triggering the global auth redirect when loading the editor
       if (!ctx.user) {
         return { isPremium: false, subscription: null };
       }
@@ -243,169 +227,32 @@ export const appRouter = router({
       };
     }),
 
-    // Cancel subscription via Paddle API
+    createCheckoutSession: protectedProcedure
+      .input(z.object({ priceId: z.string(), successUrl: z.string(), cancelUrl: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const stripe = new Stripe(ENV.stripeSecretKey);
+        const session = await stripe.checkout.sessions.create({
+          mode: "subscription",
+          customer_email: ctx.user.email ?? undefined,
+          line_items: [{ price: input.priceId, quantity: 1 }],
+          success_url: input.successUrl,
+          cancel_url: input.cancelUrl,
+          metadata: { userId: String(ctx.user.id) },
+        });
+        return { sessionId: session.id, url: session.url };
+      }),
+
     cancel: protectedProcedure.mutation(async ({ ctx }) => {
       const sub = await getActiveSubscription(ctx.user.id);
-      if (!sub) {
-        await cancelSubscriptionDb(ctx.user.id);
-        return { success: true };
+      if (sub?.stripeSubscriptionId) {
+        const stripe = new Stripe(ENV.stripeSecretKey);
+        await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+          cancel_at_period_end: true,
+        });
       }
-
-      let paddleSubId = sub.paddleSubscriptionId || "";
-      const paddle = getPaddle();
-
-      // If we don't have a paddleSubscriptionId, try to find it via Paddle API
-      if (!paddleSubId && sub.paddleCustomerId) {
-        try {
-          console.log(`[Paddle] Looking up subscription for customer ${sub.paddleCustomerId}`);
-          const subs = paddle.subscriptions.list({ customerId: [sub.paddleCustomerId], status: ["active", "trialing"] });
-          for await (const s of subs) {
-            paddleSubId = s.id;
-            // Update our DB with the found subscriptionId
-            await upsertSubscription({
-              userId: ctx.user.id,
-              paddleCustomerId: sub.paddleCustomerId ?? undefined,
-              paddleSubscriptionId: paddleSubId,
-              plan: sub.plan ?? "monthly",
-              status: sub.status,
-              currentPeriodStart: sub.currentPeriodStart ?? undefined,
-              currentPeriodEnd: sub.currentPeriodEnd ?? undefined,
-              cancelAtPeriodEnd: false,
-            });
-            break; // Take the first active subscription
-          }
-        } catch (err) {
-          console.error("[Paddle] Failed to look up subscription by customer:", err);
-        }
-      }
-
-      // If we still don't have a paddleSubscriptionId but have a transactionId, try via transaction
-      if (!paddleSubId && sub.paddleTransactionId) {
-        try {
-          console.log(`[Paddle] Looking up subscription via transaction ${sub.paddleTransactionId}`);
-          const txn = await paddle.transactions.get(sub.paddleTransactionId);
-          if (txn.subscriptionId) {
-            paddleSubId = txn.subscriptionId;
-            await upsertSubscription({
-              userId: ctx.user.id,
-              paddleCustomerId: sub.paddleCustomerId ?? undefined,
-              paddleSubscriptionId: paddleSubId,
-              plan: sub.plan ?? "monthly",
-              status: sub.status,
-              currentPeriodStart: sub.currentPeriodStart ?? undefined,
-              currentPeriodEnd: sub.currentPeriodEnd ?? undefined,
-              cancelAtPeriodEnd: false,
-            });
-          }
-        } catch (err) {
-          console.error("[Paddle] Failed to look up subscription via transaction:", err);
-        }
-      }
-
-      // Now cancel in Paddle if we have the ID
-      if (paddleSubId) {
-        try {
-          await paddle.subscriptions.cancel(paddleSubId, {
-            effectiveFrom: "next_billing_period",
-          });
-          console.log(`[Paddle] Successfully canceled subscription ${paddleSubId}`);
-        } catch (err: any) {
-          console.error("[Paddle] Cancel subscription failed:", err);
-          // If it's already canceled, that's fine
-          if (!err?.message?.includes("already_canceled")) {
-            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error al cancelar la suscripción en Paddle. Inténtalo de nuevo." });
-          }
-        }
-      } else {
-        console.warn(`[Paddle] No paddleSubscriptionId found for user ${ctx.user.id}, canceling only in DB`);
-      }
-
-      await upsertSubscription({
-        userId: ctx.user.id,
-        paddleCustomerId: sub.paddleCustomerId ?? undefined,
-        paddleSubscriptionId: paddleSubId || undefined,
-        plan: sub.plan ?? "monthly",
-        status: sub.status,
-        currentPeriodStart: sub.currentPeriodStart ?? undefined,
-        currentPeriodEnd: sub.currentPeriodEnd ?? undefined,
-        cancelAtPeriodEnd: true,
-      });
-      // Send cancellation confirmation email (non-blocking)
-      const user = ctx.user;
-      if (user.email && sub.currentPeriodEnd) {
-        sendCancellationEmail({
-          to: user.email,
-          name: user.name || "Usuario",
-          accessUntilDate: sub.currentPeriodEnd,
-          reactivateUrl: "https://cloud-pdf.net/es/dashboard?tab=billing",
-        }).catch((err: unknown) => console.error("[Email] Cancellation email failed:", err));
-      }
+      await cancelSubscriptionDb(ctx.user.id);
       return { success: true };
     }),
-
-    // Called from the frontend after Paddle Checkout overlay completes
-    // This creates the subscription record immediately (webhook will update it later)
-    confirmPaddleCheckout: protectedProcedure
-      .input(z.object({
-        transactionId: z.string().optional(),
-        subscriptionId: z.string().optional(),
-        customerId: z.string().optional(),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        const user = ctx.user;
-        const now = new Date();
-        const trialEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-        let subscriptionId = input.subscriptionId || "";
-        let customerId = input.customerId || "";
-
-        // If we have a transactionId but no subscriptionId, fetch it from Paddle API
-        if (!subscriptionId && input.transactionId) {
-          try {
-            const paddle = getPaddle();
-            const txn = await paddle.transactions.get(input.transactionId);
-            if (txn.subscriptionId) {
-              subscriptionId = txn.subscriptionId;
-              console.log(`[Paddle] Resolved subscriptionId ${subscriptionId} from transaction ${input.transactionId}`);
-            }
-            if (txn.customerId && !customerId) {
-              customerId = txn.customerId;
-            }
-          } catch (err) {
-            console.error("[Paddle] Failed to fetch transaction details:", err);
-          }
-        }
-
-        await upsertSubscription({
-          userId: user.id,
-          paddleCustomerId: customerId || undefined,
-          paddleSubscriptionId: subscriptionId || undefined,
-          paddleTransactionId: input.transactionId ?? undefined,
-          plan: "trial",
-          status: "active",
-          currentPeriodStart: now,
-          currentPeriodEnd: trialEnd,
-          cancelAtPeriodEnd: false,
-        });
-
-        // Mark all pending documents as paid
-        await markDocumentsPaid(user.id);
-
-        // Send confirmation email (non-blocking)
-        if (user.email) {
-          sendPaymentConfirmationEmail({
-            to: user.email,
-            name: user.name || "Usuario",
-            trialEndDate: trialEnd,
-            cancelUrl: "https://cloud-pdf.net/cancelar-suscripcion",
-          }).catch((err) => console.error("[Email] Confirmation email failed:", err));
-        }
-
-        // Log payment event
-        console.log(`[Payment] Nuevo pago Paddle — Usuario: ${user.name || "Anónimo"} (${user.email || "sin email"}), Plan: Trial 7 días, Sub: ${subscriptionId}, Fin de prueba: ${trialEnd.toLocaleDateString("es-ES")}`);
-
-        return { success: true, subscriptionId };
-      }),
   }),
 
   // ─── Documents ─────────────────────────────────────────────────

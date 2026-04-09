@@ -19,7 +19,8 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { usePdfFile } from "@/contexts/PdfFileContext";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { colors, isFastDoc } from "@/lib/brand";
+import { colors } from "@/lib/brand";
+const isFastDoc = false;
 
 const ACCEPTED_MIME_TYPES = new Set([
   'application/pdf',

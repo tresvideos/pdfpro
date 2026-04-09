@@ -16,18 +16,8 @@ const COLORS_CLOUD: BrandColors = {
   lightBg: "oklch(0.55 0.22 260 / 0.08)",
 };
 
-const COLORS_FAST: BrandColors = {
-  primary: "oklch(0.55 0.22 38)",
-  secondary: "oklch(0.58 0.20 55)",
-  primaryHover: "oklch(0.48 0.22 38)",
-  gradient: "linear-gradient(135deg, oklch(0.55 0.22 38), oklch(0.58 0.20 55))",
-  light: "oklch(0.58 0.20 38)",
-  lightBg: "oklch(0.58 0.20 38 / 0.08)",
-};
-
 const BRANDS: Record<string, { name: string; domain: string; logoParts: [string, string]; brandKey: string; colors: BrandColors }> = {
-  FastDoc: { name: "FastDoc", domain: "fastdoc.app", logoParts: ["Fast", "Doc"], brandKey: "FastDoc", colors: COLORS_FAST },
-  CloudPDF: { name: "CloudPDF", domain: "cloud-pdf.net", logoParts: ["Cloud", "PDF"], brandKey: "CloudPDF", colors: COLORS_CLOUD },
+  CloudPDF: { name: "editorPDF", domain: "cloud-pdf.net", logoParts: ["editor", "PDF"], brandKey: "CloudPDF", colors: COLORS_CLOUD },
 };
 
 const key = import.meta.env.VITE_BRAND_NAME || "CloudPDF";
@@ -38,7 +28,7 @@ export const brandDomain = brand.domain;
 export const logoParts = brand.logoParts;
 export const brandKey = brand.brandKey;
 export const colors = brand.colors;
-export const isFastDoc = brand.brandKey === "FastDoc";
+export const isFastDoc = false;
 
 // Set data-brand attribute on <html> so CSS can target it
 if (typeof document !== "undefined") {

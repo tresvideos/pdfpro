@@ -3997,7 +3997,6 @@ export default function PdfEditor({ initialTool, initialFile, fullscreen, initia
               triggerBlobDownload(blob, name);
               pendingToolDownloadRef.current = null;
               toast.success("¡Pago completado! Archivo descargado correctamente.", { id: "post-pay-dl" });
-              // Navigate to success page for conversion tracking
               navigate(`/${lang}/payment/success${txnParam}`);
               return;
             }
@@ -4012,7 +4011,6 @@ export default function PdfEditor({ initialTool, initialFile, fullscreen, initia
           } catch {
             toast.success("¡Pago completado! Tu documento está en tu panel.", { id: "post-pay-dl" });
           }
-          // Always navigate to success page for Google Ads / Analytics conversion tracking
           navigate(`/${lang}/payment/success${txnParam}`);
         }}
       />

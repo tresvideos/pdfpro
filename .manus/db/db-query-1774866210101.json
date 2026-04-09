@@ -1,9 +1,0 @@
-{
-  "query": "UPDATE blog_posts SET content = REPLACE(content, 'editpdf.online', 'pdfup.io') WHERE content LIKE '%editpdf.online%';",
-  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 4AvtuQasrcUbqPZ.root --database HUwJ6fxw58gKVZz5QkmFWk --execute UPDATE blog_posts SET content = REPLACE(content, 'editpdf.online', 'pdfup.io') WHERE content LIKE '%editpdf.online%';",
-  "rows": [],
-  "messages": [],
-  "stdout": "",
-  "stderr": "",
-  "execution_time_ms": 179
-}

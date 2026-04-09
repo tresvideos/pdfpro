@@ -1,32 +1,21 @@
 /* =============================================================
    CloudPDF Pricing Page — Deep Navy Pro design
    Two plans: Trial + Monthly, with feature comparison table
-   Paddle inline checkout embebido (no overlay)
    ============================================================= */
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Check, X, ChevronDown, ChevronUp, Zap, Crown, Loader2, CreditCard } from "lucide-react";
+import { useState } from "react";
+import { Check, X, ChevronDown, ChevronUp, Zap, Crown } from "lucide-react";
 import { toast } from "sonner";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { brandName } from "@/lib/brand";
 
 export default function Pricing() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [showCheckout, setShowCheckout] = useState(false);
   const { isAuthenticated, user } = useAuth();
   const { t } = useLanguage();
-  const paddleConfigQ = trpc.subscription.paddleConfig.useQuery();
-  const confirmPaddleCheckout = trpc.subscription.confirmPaddleCheckout.useMutation({
-    onSuccess: () => {
-      toast.success("Subscription activated!");
-      setShowCheckout(false);
-    },
-    onError: () => toast.error(t.pricing_error ?? "Error processing payment. Please try again."),
-  });
 
   const features = [
     { name: t.pricing_feature_convert ?? "Unlimited conversions", trial: false, monthly: true },
@@ -267,71 +256,6 @@ export default function Pricing() {
         </div>
       </section>
 
-      {/* ── INLINE CHECKOUT ──────────────────────────────── */}
-      {showCheckout && isAuthenticated && (
-        <section id="pricing-checkout" className="pb-16">
-          <div className="container max-w-2xl mx-auto">
-            <div
-              className="rounded-2xl overflow-hidden"
-              style={{
-                border: "2px solid oklch(0.55 0.22 260)",
-                backgroundColor: "oklch(1 0 0)",
-                boxShadow: "0 4px 24px oklch(0.18 0.04 250 / 0.1)",
-              }}
-            >
-              <div
-                className="px-6 py-4 border-b flex items-center gap-3"
-                style={{ borderColor: "oklch(0.88 0.01 250)", backgroundColor: "oklch(0.98 0.005 250)" }}
-              >
-                <CreditCard className="w-5 h-5" style={{ color: "oklch(0.55 0.22 260)" }} />
-                <h3
-                  className="text-lg font-bold"
-                  style={{ fontFamily: "'Sora', sans-serif", color: "oklch(0.15 0.03 250)" }}
-                >
-                  {t.paywall_secure ?? "Pago 100% seguro"}
-                </h3>
-                <button
-                  onClick={() => setShowCheckout(false)}
-                  className="ml-auto text-sm hover:underline"
-                  style={{ color: "oklch(0.50 0.02 250)" }}
-                >
-                  Cancelar
-                </button>
-              </div>
-              <PaddleInlineCheckout
-                paddleConfig={paddleConfigQ.data}
-                user={user}
-              onComplete={(data: any) => {
-                   console.log("[Pricing] checkout.completed data:", JSON.stringify(data, null, 2));
-                   const txnId = data.id || data.transaction_id || data.subscription_id || "";
-                   // Google Ads conversion tracking
-                   if (typeof window.gtag === "function") {
-                     window.gtag("event", "conversion", {
-                       send_to: "AW-18038662610",
-                       value: 49.90,
-                       currency: "EUR",
-                       transaction_id: txnId,
-                     });
-                     window.gtag("event", "purchase", {
-                       transaction_id: txnId,
-                       value: 49.90,
-                       currency: "EUR",
-                       items: [{ item_id: "cloudpdf_trial", item_name: `${brandName} Trial Subscription`, price: 0, quantity: 1 }],
-                     });
-                     console.log("[Pricing] Conversion tracking fired", { txnId });
-                   }
-                   confirmPaddleCheckout.mutate({
-                     transactionId: data.id || data.transaction_id || "",
-                     subscriptionId: data.subscription_id || "",
-                     customerId: data.customer_id || "",
-                   });
-                 }}
-              />
-            </div>
-          </div>
-        </section>
-      )}
-
       {/* ── COMPARISON TABLE ─────────────────────────────── */}
       <section
         className="py-16"
@@ -468,128 +392,3 @@ export default function Pricing() {
   );
 }
 
-// ── Paddle Inline Checkout component (reusable) ─────────────────────────────
-function PaddleInlineCheckout({
-  paddleConfig,
-  user,
-  onComplete,
-}: {
-  paddleConfig?: { clientToken: string; priceId: string; sandbox?: boolean } | null;
-  user?: { id: number; email: string | null; name?: string | null } | null;
-  onComplete: (data: any) => void;
-}) {
-  const [ready, setReady] = useState(false);
-  const initialized = useRef(false);
-  const opened = useRef(false);
-  const geoRef = useRef<{ country: string; postalCode: string } | null>(null);
-
-  useEffect(() => {
-    fetch("/api/geo").then(r => r.json()).then(data => {
-      if (data?.country && data?.postalCode) geoRef.current = { country: data.country, postalCode: data.postalCode };
-    }).catch(() => {});
-  }, []);
-
-  const handleComplete = useCallback((eventData: any) => {
-    onComplete(eventData);
-  }, [onComplete]);
-
-  useEffect(() => {
-    if (!paddleConfig?.clientToken || !paddleConfig?.priceId) return;
-
-    const P = (window as any).Paddle;
-    if (!P) return;
-
-    try {
-      if (!initialized.current) {
-        if (paddleConfig.sandbox && P.Environment) {
-          P.Environment.set("sandbox");
-        }
-        P.Initialize({
-          token: paddleConfig.clientToken,
-          checkout: {
-            settings: {
-              displayMode: "inline",
-              frameTarget: "pricing-paddle-checkout",
-              frameInitialHeight: "450",
-              frameStyle: "width: 100%; min-width: 312px; background-color: transparent; border: none;",
-            },
-          },
-          eventCallback: (event: any) => {
-            if (event.name === "checkout.loaded") setReady(true);
-            if (event.name === "checkout.completed") handleComplete(event.data);
-            if (event.name === "checkout.error") {
-              console.error("[Paddle] Checkout error:", event);
-              toast.error("Error en el proceso de pago.");
-            }
-          },
-        });
-        initialized.current = true;
-      } else {
-        P.Update({
-          eventCallback: (event: any) => {
-            if (event.name === "checkout.loaded") setReady(true);
-            if (event.name === "checkout.completed") handleComplete(event.data);
-            if (event.name === "checkout.error") {
-              console.error("[Paddle] Checkout error:", event);
-              toast.error("Error en el proceso de pago.");
-            }
-          },
-        });
-      }
-
-      if (!opened.current) {
-        const pricingCustomer: any = { email: user?.email || undefined };
-        if (geoRef.current) {
-          pricingCustomer.address = { countryCode: geoRef.current.country, postalCode: geoRef.current.postalCode };
-        }
-        P.Checkout.open({
-          items: [{ priceId: paddleConfig.priceId, quantity: 1 }],
-          customer: pricingCustomer,
-          customData: {
-            user_id: user?.id?.toString() || "",
-            user_email: user?.email || "",
-            user_name: user?.name || "",
-          },
-          settings: {
-            locale: "es",
-            allowLogout: false,
-            showAddDiscounts: true,
-          },
-        });
-        opened.current = true;
-      }
-    } catch (err) {
-      console.error("[Paddle] Init error:", err);
-      toast.error("Error loading payment form.");
-    }
-  }, [paddleConfig, user, handleComplete]);
-
-  useEffect(() => {
-    return () => {
-      if (opened.current && (window as any).Paddle) {
-        try { (window as any).Paddle.Checkout.close(); } catch {}
-      }
-    };
-  }, []);
-
-  return (
-    <div className="p-4">
-      {!ready && (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 animate-spin" style={{ color: "oklch(0.55 0.22 260)" }} />
-          <span className="ml-3 text-sm" style={{ color: "oklch(0.50 0.02 250)" }}>
-            Cargando formulario de pago...
-          </span>
-        </div>
-      )}
-      <div
-        className="pricing-paddle-checkout"
-        style={{
-          minHeight: ready ? "auto" : 0,
-          opacity: ready ? 1 : 0,
-          transition: "opacity 0.3s ease",
-        }}
-      />
-    </div>
-  );
-}

@@ -197,7 +197,7 @@ export default function EditorPage() {
     );
   }
 
-  /* No file loaded — show upload zone (for direct access from Google Ads etc.) */
+  /* No file loaded — show upload zone */
   if (!pendingFile && !isFileFree && !pendingPaywall) {
     return <EditorUploadZone lang={lang} />;
   }

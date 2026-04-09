@@ -464,7 +464,7 @@ export default function Admin() {
                           {u.subPlan ?? "\u2014"}
                         </td>
                         <td className="px-4 py-3 text-xs text-gray-500 font-mono">
-                          {u.paddleCustomerId ??"\u2014"}
+                          {"\u2014"}
                         </td>
                         <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
                           {u.currentPeriodEnd ? new Date(u.currentPeriodEnd).toLocaleDateString("es-ES") : "\u2014"}
@@ -571,7 +571,7 @@ export default function Admin() {
                         </td>
                         <td className="px-4 py-3 text-gray-400">{u.country ?? "—"}</td>
                         <td className="px-4 py-3 text-gray-500 text-xs font-mono">
-                          {u.paddleCustomerId ??"—"}
+                          {"—"}
                         </td>
                       </tr>
                     ))}
@@ -754,45 +754,6 @@ export default function Admin() {
           {tab === "settings" && (
             <div className="space-y-6">
               <h2 className="text-lg font-semibold text-white">Ajustes del sitio</h2>
-
-              {/* Paddle Payment Info */}
-              <div
-                className="rounded-xl border p-5 space-y-4"
-                style={{ backgroundColor: "#131720", borderColor: "#1e2433" }}
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-10 h-10 rounded-lg flex items-center justify-center"
-                    style={{ backgroundColor: "rgba(16,185,129,0.15)" }}
-                  >
-                    <CreditCard size={18} style={{ color: "#10b981" }} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-white">Paddle Billing</p>
-                    <p className="text-xs text-gray-400">
-                      Pagos gestionados por Paddle. Gestiona las claves desde Settings → Payment.
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-2 text-xs font-mono">
-                  <div className="p-3 rounded-lg" style={{ backgroundColor: "#0f1117" }}>
-                    <p className="text-gray-400 mb-1">VITE_PADDLE_CLIENT_TOKEN</p>
-                    <p className="text-green-400">
-                      {import.meta.env.VITE_PADDLE_CLIENT_TOKEN
-                        ? "Configurado \u2713"
-                        : "No configurado"}
-                    </p>
-                  </div>
-                  <div className="p-3 rounded-lg" style={{ backgroundColor: "#0f1117" }}>
-                    <p className="text-gray-400 mb-1">VITE_PADDLE_PRICE_ID</p>
-                    <p className="text-green-400">
-                      {import.meta.env.VITE_PADDLE_PRICE_ID
-                        ? "Configurado \u2713"
-                        : "No configurado"}
-                    </p>
-                  </div>
-                </div>
-              </div>
 
               {/* Site settings */}
               <div

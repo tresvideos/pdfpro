@@ -1,9 +1,0 @@
-{
-  "query": "UPDATE legal_pages SET content = REPLACE(content, 'Los pagos realizados no son reembolsables, salvo en los casos previstos por la legislación aplicable (Directiva 2011/83/UE sobre derechos de los consumidores). El derecho de desistimiento de 14 días no aplica una vez que el servicio digital ha comenzado a prestarse con el consentimiento expreso del usuario.', 'Puede solicitar un reembolso completo dentro de los **14 días** siguientes a la fecha de su compra. Los reembolsos se procesarán utilizando el mismo método de pago dentro de los 14 días siguientes a la aprobación de la solicitud. Al recibir un reembolso, su acceso a las funciones premium cesará de inmediato. Para más información, consulte nuestra [Política de Reembolso](/es/refund).') WHERE slug = 'terms'",
-  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 4AvtuQasrcUbqPZ.root --database HUwJ6fxw58gKVZz5QkmFWk --execute UPDATE legal_pages SET content = REPLACE(content, 'Los pagos realizados no son reembolsables, salvo en los casos previstos por la legislación aplicable (Directiva 2011/83/UE sobre derechos de los consumidores). El derecho de desistimiento de 14 días no aplica una vez que el servicio digital ha comenzado a prestarse con el consentimiento expreso del usuario.', 'Puede solicitar un reembolso completo dentro de los **14 días** siguientes a la fecha de su compra. Los reembolsos se procesarán utilizando el mismo método de pago dentro de los 14 días siguientes a la aprobación de la solicitud. Al recibir un reembolso, su acceso a las funciones premium cesará de inmediato. Para más información, consulte nuestra [Política de Reembolso](/es/refund).') WHERE slug = 'terms'",
-  "rows": [],
-  "messages": [],
-  "stdout": "",
-  "stderr": "",
-  "execution_time_ms": 65
-}

@@ -2,7 +2,6 @@ import { useEffect, useState, useRef } from "react";
 import { CheckCircle, ArrowRight, Upload, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { brandName } from "@/lib/brand";
 
 export default function PaymentSuccess() {
   const utils = trpc.useUtils();
@@ -14,44 +13,7 @@ export default function PaymentSuccess() {
     // Invalidate subscription status so it refreshes
     utils.subscription.status.invalidate();
 
-    // Fire conversion tracking only once
-    if (!trackedRef.current) {
-      trackedRef.current = true;
-
-      // Get transaction_id from URL params (Paddle transaction ID or fallback)
-      const params = new URLSearchParams(window.location.search);
-      const transactionId = params.get("txn") || params.get("transaction_id") || params.get("session_id") || `pmt_${Date.now()}`;
-      console.log("[PaymentSuccess] URL params:", window.location.search, "→ transactionId:", transactionId);
-
-      // Google Ads conversion tracking
-      if (typeof window.gtag === "function") {
-        window.gtag("event", "conversion", {
-          send_to: "AW-18038662610",
-          value: 49.90,
-          currency: "EUR",
-          transaction_id: transactionId,
-        });
-        console.log("[PaymentSuccess] Google Ads conversion fired", { transactionId });
-      }
-
-      // Google Analytics 4 purchase event
-      if (typeof window.gtag === "function") {
-        window.gtag("event", "purchase", {
-          transaction_id: transactionId,
-          value: 49.90,
-          currency: "EUR",
-          items: [
-            {
-              item_id: "cloudpdf_trial",
-              item_name: `${brandName} Trial Subscription`,
-              price: 0,
-              quantity: 1,
-            },
-          ],
-        });
-        console.log("[PaymentSuccess] GA4 purchase event fired", { transactionId });
-      }
-    }
+    trackedRef.current = true;
 
     // Detect lang from URL
     const langMatch = window.location.pathname.match(/^\/([a-z]{2})(\/|$)/);

@@ -2,19 +2,18 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
-import { Paddle, EventName, Environment } from "@paddle/paddle-node-sdk";
 import multer from "multer";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerGoogleOAuthRoutes } from "./googleOauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { getUserById, upsertSubscription, getBlogPosts, createDocument, userHasActiveSubscription, markDocumentsPaid } from "../db";
+import { getBlogPosts, createDocument, userHasActiveSubscription, markDocumentsPaid, upsertSubscription } from "../db";
 import { storagePut, storageGet } from "../storage";
 import { sdk } from "./sdk";
 import { convertToPdf, isConvertibleType, ACCEPTED_EXTENSIONS } from "../convertToPdf";
-import { sendPaymentConfirmationEmail, sendCancellationEmail } from "../email";
-
+import Stripe from "stripe";
+import { ENV } from "./env";
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
     const server = net.createServer();
@@ -38,141 +37,74 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // ── Paddle Webhook (MUST be before express.json) ───────────────────────────────────────────
-  const webhookPaddleEnv = (process.env.PADDLE_API_KEY || "").startsWith("pdl_live_") ? Environment.production : Environment.sandbox;
-  const paddle = new Paddle(process.env.PADDLE_API_KEY || "", { environment: webhookPaddleEnv });
-
-  app.post("/api/paddle/webhook", express.raw({ type: "application/json" }), async (req, res) => {
-    const signature = (req.headers["paddle-signature"] as string) || "";
-    const rawBody = req.body.toString();
-    const secretKey = process.env.PADDLE_WEBHOOK_NOTIFICATION_ID || "";
-
-    let eventData: any;
+  // ── Stripe Webhook (must be before json body parser for raw body access) ────
+  app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    const stripe = new Stripe(ENV.stripeSecretKey);
+    const sig = req.headers["stripe-signature"] as string;
+    let event: Stripe.Event;
     try {
-      if (signature && rawBody) {
-        eventData = paddle.webhooks.unmarshal(rawBody, secretKey, signature);
-      } else {
-        console.log("[Paddle Webhook] Missing signature or body");
-        res.status(400).json({ error: "Missing signature" });
-        return;
-      }
+      event = stripe.webhooks.constructEvent(req.body, sig, ENV.stripeWebhookSecret);
     } catch (err) {
-      console.error("[Paddle Webhook] Signature verification failed:", err);
-      res.status(400).json({ error: "Signature verification failed" });
+      console.error("[Stripe Webhook] Signature verification failed:", err);
+      res.status(400).send("Webhook signature verification failed");
       return;
     }
 
-    console.log(`[Paddle Webhook] Event: ${eventData.eventType} | ID: ${eventData.eventId}`);
-
     try {
-      const data = eventData.data;
-      // Extract userId from custom_data (set during checkout)
-      const customData = data.customData || data.custom_data || {};
-      const userId = parseInt(customData.userId || customData.user_id || "0");
-
-      if (eventData.eventType === EventName.SubscriptionCreated ||
-          eventData.eventType === EventName.SubscriptionActivated ||
-          eventData.eventType === EventName.SubscriptionTrialing) {
-        if (userId) {
-          const billingPeriod = data.currentBillingPeriod || data.current_billing_period;
-          const periodStart = billingPeriod?.startsAt || billingPeriod?.starts_at;
-          const periodEnd = billingPeriod?.endsAt || billingPeriod?.ends_at;
-          const status = data.status === "trialing" ? "trialing" : "active";
-
+      switch (event.type) {
+        case "checkout.session.completed": {
+          const session = event.data.object as Stripe.Checkout.Session;
+          const userId = Number(session.metadata?.userId);
+          if (!userId) break;
+          const subId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+          const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
+          // Fetch subscription details for period dates
+          let periodStart: Date | undefined;
+          let periodEnd: Date | undefined;
+          if (subId) {
+            const stripeSub = await stripe.subscriptions.retrieve(subId) as unknown as { current_period_start: number; current_period_end: number };
+            periodStart = new Date(stripeSub.current_period_start * 1000);
+            periodEnd = new Date(stripeSub.current_period_end * 1000);
+          }
           await upsertSubscription({
             userId,
-            paddleCustomerId: data.customerId || data.customer_id || undefined,
-            paddleSubscriptionId: data.id || undefined,
-            paddleTransactionId: data.transactionId || data.transaction_id || undefined,
-            plan: data.status === "trialing" ? "trial" : "monthly",
-            status,
-            currentPeriodStart: periodStart ? new Date(periodStart) : new Date(),
-            currentPeriodEnd: periodEnd ? new Date(periodEnd) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-            cancelAtPeriodEnd: false,
+            stripeCustomerId: customerId ?? undefined,
+            stripeSubscriptionId: subId ?? undefined,
+            plan: "monthly",
+            status: "active",
+            currentPeriodStart: periodStart,
+            currentPeriodEnd: periodEnd,
           });
-
-          // Mark pending documents as paid
           await markDocumentsPaid(userId);
-
-          // Send confirmation email (non-blocking)
-          const user = await getUserById(userId);
-          if (user?.email && periodEnd) {
-            sendPaymentConfirmationEmail({
-              to: user.email,
-              name: user.name || "Usuario",
-              trialEndDate: new Date(periodEnd),
-              cancelUrl: "https://cloud-pdf.net/cancelar-suscripcion",
-            }).catch((err: unknown) => console.error("[Email] Confirmation email failed:", err));
-          }
-
-          console.log(`[Paddle Webhook] Subscription ${status} for user ${userId}, Paddle Sub: ${data.id}`);
+          console.log(`[Stripe] Subscription activated for user ${userId}`);
+          break;
         }
-      } else if (eventData.eventType === EventName.SubscriptionUpdated) {
-        if (userId) {
-          const billingPeriod = data.currentBillingPeriod || data.current_billing_period;
-          const periodStart = billingPeriod?.startsAt || billingPeriod?.starts_at;
-          const periodEnd = billingPeriod?.endsAt || billingPeriod?.ends_at;
-          const scheduledChange = data.scheduledChange || data.scheduled_change;
-          const cancelAtEnd = scheduledChange?.action === "cancel";
-
-          await upsertSubscription({
-            userId,
-            paddleCustomerId: data.customerId || data.customer_id || undefined,
-            paddleSubscriptionId: data.id || undefined,
-            plan: data.status === "trialing" ? "trial" : "monthly",
-            status: data.status as "active" | "canceled" | "past_due" | "trialing" | "incomplete",
-            currentPeriodStart: periodStart ? new Date(periodStart) : undefined,
-            currentPeriodEnd: periodEnd ? new Date(periodEnd) : undefined,
-            cancelAtPeriodEnd: cancelAtEnd,
-          });
-          console.log(`[Paddle Webhook] Subscription updated for user ${userId}, status: ${data.status}`);
+        case "customer.subscription.updated": {
+          const sub = event.data.object as Stripe.Subscription;
+          const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
+          // Find userId from metadata or DB - we stored it in checkout
+          // For now, update by stripeSubscriptionId
+          const status = sub.cancel_at_period_end ? "canceled" : (sub.status === "active" ? "active" : sub.status === "past_due" ? "past_due" : "incomplete");
+          console.log(`[Stripe] Subscription ${sub.id} updated: status=${status}, cancel_at_period_end=${sub.cancel_at_period_end}`);
+          break;
         }
-      } else if (eventData.eventType === EventName.SubscriptionCanceled) {
-        if (userId) {
-          await upsertSubscription({
-            userId,
-            paddleCustomerId: data.customerId || data.customer_id || undefined,
-            paddleSubscriptionId: data.id || undefined,
-            plan: "monthly",
-            status: "canceled",
-            currentPeriodStart: undefined,
-            currentPeriodEnd: undefined,
-            cancelAtPeriodEnd: false,
-          });
-
-          // Send cancellation email (non-blocking)
-          const user = await getUserById(userId);
-          if (user?.email) {
-            sendCancellationEmail({
-              to: user.email,
-              name: user.name || "Usuario",
-              accessUntilDate: new Date(),
-              reactivateUrl: "https://cloud-pdf.net/es/dashboard?tab=billing",
-            }).catch((err: unknown) => console.error("[Email] Cancellation email failed:", err));
-          }
-
-          console.log(`[Paddle Webhook] Subscription canceled for user ${userId}`);
+        case "customer.subscription.deleted": {
+          const sub = event.data.object as Stripe.Subscription;
+          console.log(`[Stripe] Subscription ${sub.id} deleted/canceled`);
+          break;
         }
-      } else if (eventData.eventType === EventName.SubscriptionPastDue) {
-        if (userId) {
-          await upsertSubscription({
-            userId,
-            paddleCustomerId: data.customerId || data.customer_id || undefined,
-            paddleSubscriptionId: data.id || undefined,
-            plan: "monthly",
-            status: "past_due",
-            cancelAtPeriodEnd: false,
-          });
-          console.log(`[Paddle Webhook] Subscription past_due for user ${userId}`);
+        case "invoice.payment_failed": {
+          const invoice = event.data.object as Stripe.Invoice;
+          console.log(`[Stripe] Payment failed for invoice ${invoice.id}`);
+          break;
         }
       }
+      res.json({ received: true });
     } catch (err) {
-      console.error("[Paddle Webhook] Error processing event:", err);
+      console.error("[Stripe Webhook] Processing error:", err);
+      res.status(500).send("Webhook processing error");
     }
-
-    res.json({ received: true });
   });
-
 
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
@@ -189,7 +121,6 @@ async function startServer() {
   }
 
   // ── Domain Redirect: pdfup.io → cloud-pdf.net ─────────────────────────────
-  // 301 redirect preserving path and query params (for SEO and Google Ads gclid)
   app.use((req, res, next) => {
     const host = (req.headers.host || "").toLowerCase().replace(/:\d+$/, "");
     const xForwardedHost = (req.headers["x-forwarded-host"] || "").toString().toLowerCase();
@@ -203,7 +134,7 @@ async function startServer() {
   });
 
   // ── Security Headers ─────────────────────────────────────────────────────────
-  // Comprehensive security headers to pass Sucuri/Google Ads security scans
+  // Comprehensive security headers
   app.use((_req, res, next) => {
     // Prevent clickjacking (both legacy header and CSP frame-ancestors)
     res.setHeader("X-Frame-Options", "SAMEORIGIN");
@@ -214,16 +145,16 @@ async function startServer() {
     // Referrer policy
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     // Permissions policy — disable unnecessary browser features
-    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(self \"https://*.paddle.com\")");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(self)");
     // Strict Transport Security (HSTS) — force HTTPS for 1 year
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
     // Content Security Policy
     res.setHeader("Content-Security-Policy", [
       "frame-ancestors 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://cdn.paddle.com https://pay.google.com https://www.clarity.ms",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://pay.google.com https://js.stripe.com",
       "object-src 'none'",
       "base-uri 'self'",
-      "frame-src 'self' https://*.paddle.com https://pay.google.com https://*.google.com",
+      "frame-src 'self' https://pay.google.com https://*.google.com https://js.stripe.com https://hooks.stripe.com",
     ].join("; "));
     next();
   });
