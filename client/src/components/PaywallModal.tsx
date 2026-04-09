@@ -56,7 +56,7 @@ function CheckoutForm({
       const lang = langMatch ? langMatch[1] : "es";
       const origin = window.location.origin;
       const result = await createCheckout.mutateAsync({
-        priceId: import.meta.env.VITE_STRIPE_PRICE_ID ?? "",
+        priceId: import.meta.env.VITE_STRIPE_TRIAL_PRICE_ID ?? "",
         successUrl: `${origin}/${lang}/payment/success`,
         cancelUrl: `${origin}/${lang}`,
       });
@@ -123,13 +123,15 @@ function CheckoutForm({
         <div className="flex-1 flex flex-col items-center justify-center p-8 min-h-[300px]">
           <div className="text-center mb-6">
             <h3 className="text-xl font-bold text-slate-800 mb-2">
-              {t.pricing_monthly_name ?? "Monthly Plan"}
+              {t.pricing_trial_name ?? "7-day Trial"}
             </h3>
             <div className="flex items-baseline justify-center gap-1">
-              <span className="text-3xl font-extrabold text-slate-900">{t.pricing_monthly_price ?? "€49.90"}</span>
-              <span className="text-sm text-slate-500">/ {t.pricing_monthly_period ?? "mes"}</span>
+              <span className="text-3xl font-extrabold text-slate-900">€0.50</span>
+              <span className="text-sm text-slate-500">/ 7 {t.pricing_trial_period ?? "días"}</span>
             </div>
-            <p className="text-sm text-slate-500 mt-2">{t.pricing_monthly_desc ?? "Full access to all features"}</p>
+            <p className="text-sm text-slate-500 mt-2">
+              {"Después"} €19.99/{t.pricing_monthly_period ?? "mes"}
+            </p>
           </div>
 
           <ul className="space-y-2 mb-6 text-sm text-slate-600 w-full max-w-xs">
