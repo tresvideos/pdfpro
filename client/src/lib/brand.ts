@@ -17,7 +17,8 @@ const COLORS_CLOUD: BrandColors = {
 };
 
 const BRANDS: Record<string, { name: string; domain: string; logoParts: [string, string]; brandKey: string; colors: BrandColors }> = {
-  CloudPDF: { name: "editorPDF", domain: "cloud-pdf.net", logoParts: ["editor", "PDF"], brandKey: "CloudPDF", colors: COLORS_CLOUD },
+  CloudPDF: { name: "CloudPDF", domain: "cloud-pdf.net", logoParts: ["Cloud", "PDF"], brandKey: "CloudPDF", colors: COLORS_CLOUD },
+  editorPDF: { name: "editorPDF", domain: "editorpdf.net", logoParts: ["editor", "PDF"], brandKey: "editorPDF", colors: COLORS_CLOUD },
 };
 
 const key = import.meta.env.VITE_BRAND_NAME || "CloudPDF";
