@@ -243,52 +243,27 @@ export const appRouter = router({
       }),
 
     createSubscription: protectedProcedure
-      .input(z.object({ trialPriceId: z.string(), proPriceId: z.string() }))
+      .input(z.object({ trialPriceId: z.string(), proPriceId: z.string(), successUrl: z.string(), cancelUrl: z.string() }))
       .mutation(async ({ ctx, input }) => {
         const stripe = new Stripe(ENV.stripeSecretKey);
-        // Find or create Stripe customer
-        const existingSub = await getActiveSubscription(ctx.user.id);
-        let customerId = existingSub?.stripeCustomerId;
-        if (!customerId) {
-          const customer = await stripe.customers.create({
-            email: ctx.user.email ?? undefined,
+        // Use Stripe Checkout Session — reliable, handles 3DS, SCA, etc.
+        // Line item 1: 19.99€/mes subscription with 7-day trial
+        // Line item 2: 0.50€ one-time trial fee
+        const session = await stripe.checkout.sessions.create({
+          mode: "subscription",
+          customer_email: ctx.user.email ?? undefined,
+          line_items: [
+            { price: input.proPriceId, quantity: 1 },
+          ],
+          subscription_data: {
+            trial_period_days: 7,
             metadata: { userId: String(ctx.user.id) },
-          });
-          customerId = customer.id;
-        }
-        // Strategy: charge 0.50€ now, first 19.99€ charge in 7 days
-        // Use billing_cycle_anchor set to 7 days from now so the recurring
-        // price is not charged immediately. The trial price (0.50€ one-time)
-        // is added via add_invoice_items and charged on the first invoice.
-        const sevenDaysFromNow = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
-        const subscription = await stripe.subscriptions.create({
-          customer: customerId,
-          items: [{ price: input.proPriceId }],
-          billing_cycle_anchor: sevenDaysFromNow,
-          proration_behavior: "none",
-          payment_behavior: "default_incomplete",
-          payment_settings: {
-            payment_method_types: ["card"],
-            save_default_payment_method: "on_subscription",
           },
-          add_invoice_items: [{ price: input.trialPriceId }],
-          expand: ["latest_invoice.payment_intent"],
+          success_url: input.successUrl,
+          cancel_url: input.cancelUrl,
           metadata: { userId: String(ctx.user.id) },
         });
-        const invoice = subscription.latest_invoice as unknown as { payment_intent: { client_secret: string } | null };
-        if (!invoice.payment_intent?.client_secret) {
-          throw new Error("Stripe did not return a payment intent for this subscription");
-        }
-        // Save subscription to DB
-        await upsertSubscription({
-          userId: ctx.user.id,
-          stripeCustomerId: customerId,
-          stripeSubscriptionId: subscription.id,
-          plan: "monthly",
-          status: "incomplete",
-          currentPeriodEnd: new Date(sevenDaysFromNow * 1000),
-        });
-        return { clientSecret: invoice.payment_intent.client_secret, subscriptionId: subscription.id };
+        return { url: session.url! };
       }),
 
     cancel: protectedProcedure.mutation(async ({ ctx }) => {
