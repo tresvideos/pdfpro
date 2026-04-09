@@ -46,9 +46,11 @@ function StripeCardForm({ customerId, onSuccess }: { customerId: string; onSucce
     if (!stripe || !elements) return;
     setPaying(true);
     try {
-      // Save the card via SetupIntent
-      const { error } = await stripe.confirmSetup({
+      const { error } = await stripe.confirmPayment({
         elements,
+        confirmParams: {
+          return_url: `${window.location.origin}/payment/success`,
+        },
         redirect: "if_required",
       });
       if (error) {
