@@ -109,8 +109,11 @@ function CheckoutForm({
       try {
         const trialPriceId = import.meta.env.VITE_STRIPE_TRIAL_PRICE_ID ?? "";
         const proPriceId = import.meta.env.VITE_STRIPE_PRO_PRICE_ID ?? "";
+        console.log("[Stripe Debug] VITE_STRIPE_PUBLIC_KEY:", import.meta.env.VITE_STRIPE_PUBLIC_KEY ?? "(empty)");
+        console.log("[Stripe Debug] VITE_STRIPE_TRIAL_PRICE_ID:", trialPriceId || "(empty)");
+        console.log("[Stripe Debug] VITE_STRIPE_PRO_PRICE_ID:", proPriceId || "(empty)");
         if (!trialPriceId || !proPriceId) {
-          setError("Payment not configured");
+          setError("Payment not configured — missing VITE_STRIPE_TRIAL_PRICE_ID or VITE_STRIPE_PRO_PRICE_ID");
           setLoading(false);
           return;
         }
