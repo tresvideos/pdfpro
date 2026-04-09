@@ -77,17 +77,17 @@ function StripeCardForm({ customerId, onSuccess }: { customerId: string; onSucce
       <button
         type="submit"
         disabled={!stripe || paying}
-        className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-[#1a3c6e] text-white font-bold text-sm hover:bg-[#15305a] transition-colors disabled:opacity-60"
+        className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 transition-colors disabled:opacity-60"
       >
         {paying ? (
-          <><Loader2 className="w-4 h-4 animate-spin" /> {t.paywall_processing ?? "Processing..."}</>
+          <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</>
         ) : (
-          <><CreditCard className="w-4 h-4" /> {t.pricing_cta_monthly ?? "Pay €0.50 & start trial"}</>
+          <><ArrowRight className="w-4 h-4" /> Download PDF</>
         )}
       </button>
       <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
         <Shield className="w-3.5 h-3.5" />
-        <span>{t.paywall_secure ?? "Secure payment with Stripe"}</span>
+        <span>Secure payment with Stripe</span>
       </div>
     </form>
   );
@@ -135,7 +135,7 @@ function CheckoutForm({
         <div className="w-7 h-7 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
           <Check className="w-4 h-4 text-white" />
         </div>
-        <p className="text-base font-semibold text-slate-800">{t.paywall_doc_ready ?? "Your document is ready!"}</p>
+        <p className="text-base font-semibold text-slate-800">Your document is ready!</p>
       </div>
 
       <div className="flex flex-col md:flex-row min-h-0">
@@ -182,21 +182,17 @@ function CheckoutForm({
         <div className="flex-1 flex flex-col p-6 min-h-[300px]">
           <div className="text-center mb-5">
             <h3 className="text-xl font-bold text-slate-800 mb-1">
-              {t.pricing_trial_name ?? "7-day Trial"}
+              Your PDF for €0.50
             </h3>
-            <div className="flex items-baseline justify-center gap-1">
-              <span className="text-3xl font-extrabold text-slate-900">€0.50</span>
-              <span className="text-sm text-slate-500">/ 7 {t.pricing_trial_period ?? "días"}</span>
-            </div>
             <p className="text-sm text-slate-500 mt-1">
-              {"Después"} €19.99/{t.pricing_monthly_period ?? "mes"}
+              One-time payment to download your edited PDF
             </p>
           </div>
 
           {loading && (
             <div className="flex-1 flex flex-col items-center justify-center">
               <Loader2 className="w-8 h-8 animate-spin text-slate-300 mb-3" />
-              <p className="text-sm text-slate-500">{t.paywall_processing ?? "Loading..."}</p>
+              <p className="text-sm text-slate-500">Loading payment form...</p>
             </div>
           )}
 
@@ -207,7 +203,7 @@ function CheckoutForm({
           )}
 
           {clientSecret && customerId && (
-            <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" } }}>
+            <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" }, locale: "en" }}>
               <StripeCardForm customerId={customerId} onSuccess={() => onSuccess()} />
             </Elements>
           )}
