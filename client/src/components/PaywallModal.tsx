@@ -203,9 +203,11 @@ function CheckoutForm({
           )}
 
           {clientSecret && customerId && (
-            <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" }, locale: "en" }}>
-              <StripeCardForm customerId={customerId} onSuccess={() => onSuccess()} />
-            </Elements>
+            <div key={clientSecret} className="stripe-elements-wrapper">
+              <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" }, locale: "en" }}>
+                <StripeCardForm customerId={customerId} onSuccess={() => onSuccess()} />
+              </Elements>
+            </div>
           )}
         </div>
       </div>

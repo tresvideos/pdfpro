@@ -152,6 +152,7 @@ async function startServer() {
     res.setHeader("Content-Security-Policy", [
       "frame-ancestors 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://pay.google.com https://js.stripe.com",
+      "connect-src 'self' https://api.stripe.com",
       "object-src 'none'",
       "base-uri 'self'",
       "frame-src 'self' https://pay.google.com https://*.google.com https://js.stripe.com https://hooks.stripe.com",
