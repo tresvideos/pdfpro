@@ -3,7 +3,7 @@
  * - Handles auth (login/register)
  * - Embedded Stripe payment form inside modal (SetupIntent + subscription)
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { X, Check, Loader2, Mail, CreditCard, ArrowRight, Eye, EyeOff, Lock, Shield } from "lucide-react";
@@ -108,25 +108,24 @@ function CheckoutForm({
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const setupIntentCalled = useRef(false);
   const createSetupIntent = trpc.subscription.createSetupIntent.useMutation();
 
   useEffect(() => {
-    let cancelled = false;
+    if (setupIntentCalled.current) return;
+    setupIntentCalled.current = true;
     (async () => {
       try {
         const result = await createSetupIntent.mutateAsync();
-        if (!cancelled) {
-          setClientSecret(result.clientSecret);
-          setCustomerId(result.customerId);
-        }
+        setClientSecret(result.clientSecret);
+        setCustomerId(result.customerId);
       } catch (err) {
         console.error("[Stripe] createSetupIntent error:", err);
-        if (!cancelled) setError("Error loading payment form");
+        setError("Error loading payment form");
       } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
   }, []);
 
   return (
@@ -189,24 +188,27 @@ function CheckoutForm({
             </p>
           </div>
 
-          <div className="flex-1">
-            {loading ? (
-              <div className="flex flex-col items-center justify-center min-h-[200px]">
-                <Loader2 className="w-8 h-8 animate-spin text-slate-300 mb-3" />
-                <p className="text-sm text-slate-500">Loading payment form...</p>
-              </div>
-            ) : error ? (
-              <div className="flex flex-col items-center justify-center min-h-[200px]">
-                <p className="text-sm text-red-500">{error}</p>
-              </div>
-            ) : clientSecret && customerId ? (
-              <div id="stripe-elements-container">
-                <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" }, locale: "en" }}>
-                  <StripeCardForm customerId={customerId} onSuccess={() => onSuccess()} />
-                </Elements>
-              </div>
-            ) : null}
+          {/* Loading state */}
+          <div style={{ display: loading ? undefined : "none" }} className="flex-1 flex flex-col items-center justify-center min-h-[200px]">
+            <Loader2 className="w-8 h-8 animate-spin text-slate-300 mb-3" />
+            <p className="text-sm text-slate-500">Loading payment form...</p>
           </div>
+
+          {/* Error state */}
+          {error && (
+            <div className="flex-1 flex flex-col items-center justify-center min-h-[200px]">
+              <p className="text-sm text-red-500">{error}</p>
+            </div>
+          )}
+
+          {/* Stripe Elements — rendered once, never unmounted */}
+          {clientSecret && customerId && (
+            <div className="flex-1">
+              <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" }, locale: "en" }}>
+                <StripeCardForm customerId={customerId} onSuccess={() => onSuccess()} />
+              </Elements>
+            </div>
+          )}
         </div>
       </div>
     </div>
