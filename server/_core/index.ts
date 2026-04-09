@@ -151,11 +151,11 @@ async function startServer() {
     // Content Security Policy
     res.setHeader("Content-Security-Policy", [
       "frame-ancestors 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://pay.google.com https://js.stripe.com",
-      "connect-src 'self' https://api.stripe.com",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://pay.google.com https://js.stripe.com https://hooks.stripe.com",
+      "connect-src 'self' https://api.stripe.com https://js.stripe.com https://hooks.stripe.com",
       "object-src 'none'",
       "base-uri 'self'",
-      "frame-src 'self' https://pay.google.com https://*.google.com https://js.stripe.com https://hooks.stripe.com",
+      "frame-src 'self' https://pay.google.com https://*.google.com https://js.stripe.com https://hooks.stripe.com https://api.stripe.com",
     ].join("; "));
     next();
   });
@@ -372,6 +372,12 @@ ${allUrls.map(u => `  <url>
   // Called when authenticated user clicks download and doc is not yet saved
   app.post("/api/documents/auto-save", pdfUpload.single("file"), async (req, res) => {
     try {
+      // Skip silently if storage is not configured
+      const hasStorage = !!(process.env.CF_R2_ACCOUNT_ID ?? process.env.R2_ACCOUNT_ID);
+      if (!hasStorage) {
+        res.json({ success: true, doc: null, isPremium: false, skipped: true });
+        return;
+      }
       let userId: number;
       try {
         const user = await sdk.authenticateRequest(req as any);

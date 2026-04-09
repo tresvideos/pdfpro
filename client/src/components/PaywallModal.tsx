@@ -189,26 +189,24 @@ function CheckoutForm({
             </p>
           </div>
 
-          {loading && (
-            <div className="flex-1 flex flex-col items-center justify-center">
-              <Loader2 className="w-8 h-8 animate-spin text-slate-300 mb-3" />
-              <p className="text-sm text-slate-500">Loading payment form...</p>
-            </div>
-          )}
-
-          {error && (
-            <div className="flex-1 flex flex-col items-center justify-center">
-              <p className="text-sm text-red-500">{error}</p>
-            </div>
-          )}
-
-          {clientSecret && customerId && (
-            <div key={clientSecret} className="stripe-elements-wrapper">
-              <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" }, locale: "en" }}>
-                <StripeCardForm customerId={customerId} onSuccess={() => onSuccess()} />
-              </Elements>
-            </div>
-          )}
+          <div className="flex-1">
+            {loading ? (
+              <div className="flex flex-col items-center justify-center min-h-[200px]">
+                <Loader2 className="w-8 h-8 animate-spin text-slate-300 mb-3" />
+                <p className="text-sm text-slate-500">Loading payment form...</p>
+              </div>
+            ) : error ? (
+              <div className="flex flex-col items-center justify-center min-h-[200px]">
+                <p className="text-sm text-red-500">{error}</p>
+              </div>
+            ) : clientSecret && customerId ? (
+              <div id="stripe-elements-container">
+                <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" }, locale: "en" }}>
+                  <StripeCardForm customerId={customerId} onSuccess={() => onSuccess()} />
+                </Elements>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
