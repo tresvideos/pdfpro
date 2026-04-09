@@ -34,7 +34,7 @@ interface PaywallModalProps {
 type Step = "auth-choice" | "email-form" | "plans";
 
 // ── Inner payment form (inside <Elements>) ──────────────────────────────────
-function StripeCardForm({ customerId, onSuccess }: { customerId: string; onSuccess: () => void }) {
+function StripeCardForm({ customerId, documentId, onSuccess }: { customerId: string; documentId?: number; onSuccess: () => void }) {
   const stripe = useStripe();
   const elements = useElements();
   const [paying, setPaying] = useState(false);
@@ -62,10 +62,11 @@ function StripeCardForm({ customerId, onSuccess }: { customerId: string; onSucce
       const trialPriceId = import.meta.env.VITE_STRIPE_TRIAL_PRICE_ID ?? "";
       const proPriceId = import.meta.env.VITE_STRIPE_PRO_PRICE_ID ?? "";
       await activateSubscription.mutateAsync({ customerId, trialPriceId, proPriceId });
-      // Success — redirect to payment success page
+      // Success — redirect to payment success page with documentId for auto-download
       const langMatch = window.location.pathname.match(/^\/([a-z]{2})(\/|$)/);
       const lang = langMatch ? langMatch[1] : "es";
-      window.location.href = `/${lang}/payment/success`;
+      const docParam = documentId ? `?documentId=${documentId}` : "";
+      window.location.href = `/${lang}/payment/success${docParam}`;
     } catch (err) {
       console.error("[Stripe] Payment error:", err);
       toast.error("Error processing payment. Please try again.");
@@ -100,8 +101,10 @@ function CheckoutForm({
   onSuccess,
   pdfData,
   thumbnailUrl,
+  documentId,
 }: {
   onSuccess: (transactionId?: string) => void;
+  documentId?: number;
   pdfData?: PdfPayload;
   thumbnailUrl?: string;
 }) {
@@ -207,7 +210,7 @@ function CheckoutForm({
           {clientSecret && customerId && (
             <div className="flex-1">
               <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" }, locale: "en" }}>
-                <StripeCardForm customerId={customerId} onSuccess={() => onSuccess()} />
+                <StripeCardForm customerId={customerId} documentId={documentId} onSuccess={() => onSuccess()} />
               </Elements>
             </div>
           )}
@@ -237,6 +240,7 @@ export default function PaywallModal({
   const [showPassword, setShowPassword] = useState(false);
   const [emailMode, setEmailMode] = useState<"register" | "login">("register");
   const [emailLoading, setEmailLoading] = useState(false);
+  const [savedDocId, setSavedDocId] = useState<number | undefined>();
   const registerMutation = trpc.auth.register.useMutation();
   const loginMutation = trpc.auth.login.useMutation();
   const { refresh } = useAuth();
@@ -294,7 +298,9 @@ export default function PaywallModal({
           const fd = new FormData();
           fd.append("file", blob, docToSave.name);
           fd.append("name", docToSave.name);
-          await fetch("/api/documents/auto-save", { method: "POST", credentials: "include", body: fd });
+          const saveRes = await fetch("/api/documents/auto-save", { method: "POST", credentials: "include", body: fd });
+          const saveData = await saveRes.json().catch(() => null);
+          if (saveData?.doc?.id) setSavedDocId(saveData.doc.id);
         } catch (e) {
           console.warn("[PaywallModal] Auto-save after registration failed:", e);
         }
@@ -465,6 +471,7 @@ export default function PaywallModal({
             onSuccess={handlePaymentSuccess}
             pdfData={effectivePdfData}
             thumbnailUrl={thumbnailUrl}
+            documentId={savedDocId}
           />
         )}
       </div>

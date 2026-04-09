@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { CheckCircle, ArrowRight, Upload, Loader2 } from "lucide-react";
+import { CheckCircle, ArrowRight, Upload, Loader2, Download } from "lucide-react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 
@@ -7,19 +7,27 @@ export default function PaymentSuccess() {
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
   const [countdown, setCountdown] = useState(5);
-  const trackedRef = useRef(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
+  const downloadAttempted = useRef(false);
 
   useEffect(() => {
     // Invalidate subscription status so it refreshes
     utils.subscription.status.invalidate();
 
-    trackedRef.current = true;
+    // Auto-download PDF if documentId is present
+    const params = new URLSearchParams(window.location.search);
+    const documentId = params.get("documentId");
+    if (documentId && !downloadAttempted.current) {
+      downloadAttempted.current = true;
+      autoDownload(documentId);
+    }
 
     // Detect lang from URL
     const langMatch = window.location.pathname.match(/^\/([a-z]{2})(\/|$)/);
     const lang = langMatch ? langMatch[1] : "es";
 
-    // Auto-redirect to dashboard documents tab after countdown
+    // Auto-redirect after countdown
     const interval = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
@@ -33,6 +41,34 @@ export default function PaymentSuccess() {
 
     return () => clearInterval(interval);
   }, []);
+
+  const autoDownload = async (documentId: string) => {
+    setDownloading(true);
+    try {
+      const res = await fetch(`/api/documents/proxy?id=${documentId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Download failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "document.pdf";
+      // Try to get filename from content-disposition header
+      const disposition = res.headers.get("content-disposition");
+      if (disposition) {
+        const match = disposition.match(/filename="?([^";\n]+)"?/);
+        if (match) a.download = match[1];
+      }
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setDownloaded(true);
+    } catch (err) {
+      console.error("[PaymentSuccess] Auto-download failed:", err);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const handleGoNow = () => {
     const langMatch = window.location.pathname.match(/^\/([a-z]{2})(\/|$)/);
@@ -57,13 +93,29 @@ export default function PaymentSuccess() {
         className="text-3xl font-extrabold mb-3"
         style={{ fontFamily: "'Sora', sans-serif", color: "oklch(0.15 0.03 250)" }}
       >
-        ¡Pago completado!
+        Payment complete!
       </h1>
+
+      {/* Download status */}
+      {downloading && (
+        <div className="flex items-center gap-2 mb-4 px-4 py-3 rounded-xl bg-blue-50 border border-blue-200">
+          <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+          <span className="text-sm font-medium text-blue-700">Your PDF is downloading...</span>
+        </div>
+      )}
+
+      {downloaded && (
+        <div className="flex items-center gap-2 mb-4 px-4 py-3 rounded-xl bg-green-50 border border-green-200">
+          <Download className="w-4 h-4 text-green-500" />
+          <span className="text-sm font-medium text-green-700">PDF downloaded successfully!</span>
+        </div>
+      )}
+
       <p
         className="text-base mb-4 max-w-md"
         style={{ color: "oklch(0.45 0.02 250)", fontFamily: "'DM Sans', sans-serif" }}
       >
-        Tu suscripción está activa. Tu documento está guardado en tu panel y listo para descargar.
+        Your subscription is active. Your document is saved in your dashboard and ready to download.
       </p>
 
       {/* Countdown redirect notice */}
@@ -76,7 +128,7 @@ export default function PaymentSuccess() {
       >
         <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: "oklch(0.55 0.22 260)" }} />
         <span className="text-sm font-medium" style={{ color: "oklch(0.35 0.02 250)", fontFamily: "'DM Sans', sans-serif" }}>
-          Redirigiendo en <strong>{countdown}</strong>s...
+          Redirecting in <strong>{countdown}</strong>s...
         </span>
       </div>
 
@@ -91,7 +143,7 @@ export default function PaymentSuccess() {
           }}
         >
           <Upload className="w-4 h-4" />
-          Editar otro PDF
+          Edit another PDF
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>
@@ -108,15 +160,15 @@ export default function PaymentSuccess() {
           className="font-bold mb-3 text-sm"
           style={{ color: "oklch(0.15 0.03 250)", fontFamily: "'Sora', sans-serif" }}
         >
-          ¿Qué puedes hacer ahora?
+          What you can do now:
         </h3>
         <ul className="space-y-2 text-sm" style={{ color: "oklch(0.40 0.02 250)", fontFamily: "'DM Sans', sans-serif" }}>
           {[
-            "Descargar tus PDFs editados sin marca de agua",
-            "Editar cualquier documento desde tu panel",
-            "Añadir texto, firmas y anotaciones",
-            "Comprimir, fusionar y dividir PDFs",
-            "Acceder a tus documentos en cualquier momento",
+            "Download your edited PDFs without watermark",
+            "Edit any document from your dashboard",
+            "Add text, signatures and annotations",
+            "Compress, merge and split PDFs",
+            "Access your documents anytime",
           ].map((item, i) => (
             <li key={i} className="flex items-center gap-2">
               <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: "oklch(0.55 0.22 260)" }} />
